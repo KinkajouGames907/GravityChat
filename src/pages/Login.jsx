@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { MessageCircle, ArrowRight } from 'lucide-react';
 import { auth } from '../lib/firebase';
@@ -6,6 +7,7 @@ import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 export default function Login() {
     const [error, setError] = useState('');
+    const navigate = useNavigate();
 
     const handleGoogleLogin = async () => {
         console.log("Attempting Google Sign-In...");
@@ -27,6 +29,7 @@ export default function Login() {
             }, { merge: true });
 
             console.log("Sign-In Successful:", user);
+            navigate('/');
         } catch (err) {
             console.error("Sign-In Error:", err);
             setError(`Login Failed: ${err.message}`);
