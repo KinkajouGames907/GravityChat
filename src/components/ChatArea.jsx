@@ -63,7 +63,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
 
     // Request Notification Permission
     useEffect(() => {
-        if (Notification.permission === 'default') {
+        if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
         }
     }, []);
@@ -105,11 +105,15 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                     const isRecent = msg.createdAt && (new Date() - msg.createdAt.toDate()) < 10000;
 
                     if (msg.uid !== currentUser.uid && document.hidden && isRecent) {
-                        if (Notification.permission === 'granted') {
-                            new Notification(`New message in #${activeChannelName}`, {
-                                body: `${msg.displayName}: ${msg.text}`,
-                                icon: '/favicon.ico' // Optional
-                            });
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                            try {
+                                new Notification(`New message in #${activeChannelName}`, {
+                                    body: `${msg.displayName}: ${msg.text}`,
+                                    icon: '/favicon.ico' // Optional
+                                });
+                            } catch (e) {
+                                console.error("Notification failed:", e);
+                            }
                         }
                     }
                 }

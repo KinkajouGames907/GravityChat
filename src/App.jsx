@@ -119,7 +119,12 @@ function Home() {
         />
       </motion.div>
 
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <div style={{
+        flex: 1,
+        position: 'relative',
+        overflow: 'hidden',
+        width: isMobile ? '100%' : 'auto' // Explicit width for mobile
+      }}>
         <AnimatePresence mode="wait">
           {activeChannelId === 'friends' ? (
             <motion.div
