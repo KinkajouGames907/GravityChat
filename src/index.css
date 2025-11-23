@@ -3,14 +3,22 @@
 
 /* Mobile Optimizations */
 @media (max-width: 768px) {
+    :root {
+        --safe-area-bottom: env(safe-area-inset-bottom, 20px);
+    }
+
     ::-webkit-scrollbar {
         display: none;
     }
 
-    body {
-        font-size: 14px;
-        overscroll-behavior-y: none;
-        /* Prevent pull-to-refresh */
+    body,
+    #root {
+        height: 100dvh;
+        /* Dynamic viewport height for mobile browsers */
+        width: 100vw;
+        overflow: hidden;
+        position: fixed;
+        /* Prevent body scroll */
     }
 
     .glossy-button {

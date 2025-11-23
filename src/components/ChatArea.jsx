@@ -8,7 +8,7 @@ import MemberList from './MemberList';
 
 import userAvatar from '../assets/user_avatar.png';
 
-const Message = ({ user, content, time, avatar, isOwn }) => (
+const Message = ({ user, content, time, avatar, isOwn, isMobile }) => (
     <motion.div
         initial={{ opacity: 0, y: 20, scale: 0.9 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -16,8 +16,8 @@ const Message = ({ user, content, time, avatar, isOwn }) => (
         layout
         style={{
             display: 'flex',
-            gap: '16px',
-            padding: '8px 16px',
+            gap: isMobile ? '10px' : '16px',
+            padding: isMobile ? '6px 12px' : '8px 16px',
             marginTop: '8px',
             group: 'message',
             backgroundColor: isOwn ? 'rgba(29, 155, 240, 0.05)' : 'transparent',
@@ -26,8 +26,8 @@ const Message = ({ user, content, time, avatar, isOwn }) => (
         className="hover:bg-white/5"
     >
         <div style={{
-            width: '40px',
-            height: '40px',
+            width: isMobile ? '32px' : '40px',
+            height: isMobile ? '32px' : '40px',
             borderRadius: '50%',
             backgroundColor: avatar ? 'transparent' : 'var(--bg-tertiary)',
             backgroundImage: `url(${avatar || userAvatar})`,
@@ -36,7 +36,7 @@ const Message = ({ user, content, time, avatar, isOwn }) => (
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '18px',
+            fontSize: isMobile ? '14px' : '18px',
             fontWeight: 'bold',
             color: 'var(--text-secondary)'
         }}>
@@ -44,10 +44,10 @@ const Message = ({ user, content, time, avatar, isOwn }) => (
         </div>
         <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                <span style={{ fontWeight: 600, color: isOwn ? 'var(--accent)' : 'var(--text-primary)' }}>{user}</span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{time}</span>
+                <span style={{ fontWeight: 600, fontSize: isMobile ? '14px' : '16px', color: isOwn ? 'var(--accent)' : 'var(--text-primary)' }}>{user}</span>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{time}</span>
             </div>
-            <p style={{ margin: '4px 0 0', color: 'var(--text-primary)', lineHeight: '1.4' }}>
+            <p style={{ margin: '2px 0 0', fontSize: isMobile ? '14px' : '16px', color: 'var(--text-primary)', lineHeight: '1.4' }}>
                 {content}
             </p>
         </div>
@@ -98,10 +98,6 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
             snapshot.docChanges().forEach((change) => {
                 if (change.type === "added") {
                     const msg = change.doc.data();
-                    // Only notify if:
-                    // 1. It's not my own message
-                    // 2. The document is hidden (user is away) OR on mobile (maybe app is in background, though browser support varies)
-                    // 3. The message is recent (created in last 10 seconds) - prevents notification spam on load
                     const isRecent = msg.createdAt && (new Date() - msg.createdAt.toDate()) < 10000;
 
                     if (msg.uid !== currentUser.uid && document.hidden && isRecent) {
@@ -109,7 +105,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                             try {
                                 new Notification(`New message in #${activeChannelName}`, {
                                     body: `${msg.displayName}: ${msg.text}`,
-                                    icon: '/favicon.ico' // Optional
+                                    icon: '/favicon.ico'
                                 });
                             } catch (e) {
                                 console.error("Notification failed:", e);
@@ -181,24 +177,25 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         }}>
             {/* Header */}
             <div style={{
-                height: '48px',
-                padding: '0 16px',
+                height: isMobile ? '44px' : '48px',
+                padding: isMobile ? '0 12px' : '0 16px',
                 display: 'flex',
                 alignItems: 'center',
                 borderBottom: '1px solid var(--glass-border)',
                 boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                flexShrink: 0
+                flexShrink: 0,
+                backgroundColor: 'var(--bg-secondary)'
             }}>
                 {isMobile && (
                     <Menu
                         size={24}
                         color="var(--text-secondary)"
-                        style={{ marginRight: '16px', cursor: 'pointer' }}
+                        style={{ marginRight: '12px', cursor: 'pointer' }}
                         onClick={onOpenMenu}
                     />
                 )}
-                <Hash size={24} color="var(--text-secondary)" style={{ marginRight: '8px' }} />
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: isMobile ? '120px' : 'auto' }}>{activeChannelName}</h3>
+                <Hash size={isMobile ? 20 : 24} color="var(--text-secondary)" style={{ marginRight: '8px' }} />
+                <h3 style={{ margin: 0, fontSize: isMobile ? '15px' : '16px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: isMobile ? '160px' : 'auto' }}>{activeChannelName}</h3>
                 {!isMobile && (
                     <>
                         <span style={{ margin: '0 8px', color: 'var(--text-muted)' }}>|</span>
@@ -207,10 +204,10 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 )}
                 {isMobile && <div style={{ flex: 1 }} />}
 
-                <div style={{ display: 'flex', gap: '16px', color: 'var(--text-secondary)' }}>
+                <div style={{ display: 'flex', gap: isMobile ? '12px' : '16px', color: 'var(--text-secondary)' }}>
                     {!isMobile && <Bell size={20} style={{ cursor: 'pointer' }} />}
                     <Users
-                        size={20}
+                        size={isMobile ? 20 : 20}
                         style={{ cursor: 'pointer', color: showMemberList ? 'var(--text-primary)' : 'var(--text-secondary)' }}
                         onClick={() => setShowMemberList(!showMemberList)}
                     />
@@ -235,11 +232,16 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 </div>
             </div>
 
-            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
                 {/* Main Chat Content */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                     {/* Messages */}
-                    <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        paddingBottom: isMobile ? '80px' : '20px', // Extra padding for fixed input
+                        paddingTop: '10px'
+                    }}>
                         <AnimatePresence>
                             {messages.map((msg) => (
                                 <Message
@@ -249,6 +251,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     content={msg.text}
                                     avatar={msg.photoURL}
                                     isOwn={msg.uid === currentUser?.uid}
+                                    isMobile={isMobile}
                                 />
                             ))}
                         </AnimatePresence>
@@ -256,16 +259,26 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                     </div>
 
                     {/* Input Area */}
-                    <div style={{ padding: '0 16px 24px', flexShrink: 0 }}>
+                    <div style={{
+                        padding: isMobile ? '10px 12px calc(10px + var(--safe-area-bottom))' : '0 16px 24px',
+                        flexShrink: 0,
+                        position: isMobile ? 'absolute' : 'relative',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        backgroundColor: isMobile ? 'var(--bg-primary)' : 'transparent',
+                        borderTop: isMobile ? '1px solid var(--glass-border)' : 'none',
+                        zIndex: 10
+                    }}>
                         <form
                             onSubmit={handleSendMessage}
                             style={{
                                 backgroundColor: 'var(--bg-tertiary)',
-                                borderRadius: '8px',
-                                padding: '0 16px',
+                                borderRadius: isMobile ? '20px' : '8px',
+                                padding: isMobile ? '0 12px' : '0 16px',
                                 display: 'flex',
                                 alignItems: 'center',
-                                minHeight: '44px'
+                                minHeight: isMobile ? '40px' : '44px'
                             }}
                         >
                             <button type="button" className="icon-btn" style={{ marginLeft: '-8px' }}><Plus size={20} /></button>
@@ -279,7 +292,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     background: 'transparent',
                                     border: 'none',
                                     color: 'white',
-                                    fontSize: '15px',
+                                    fontSize: isMobile ? '16px' : '15px', // 16px prevents zoom on iOS
                                     padding: '10px 0',
                                     outline: 'none'
                                 }}
