@@ -1,0 +1,20 @@
+@import './styles/theme.css';
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+    ::-webkit-scrollbar {
+        display: none;
+    }
+
+    body {
+        font-size: 14px;
+        overscroll-behavior-y: none;
+        /* Prevent pull-to-refresh */
+    }
+
+    .glossy-button {
+        padding: 10px 16px;
+        /* Larger touch targets */
+    }
+}
