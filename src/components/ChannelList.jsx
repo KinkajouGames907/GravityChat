@@ -74,7 +74,7 @@ const DMItem = ({ user, active, onClick, index }) => (
     </motion.div>
 );
 
-export default function ChannelList({ activeServerId, activeChannelId, setActiveChannelId, setActiveChannelName }) {
+export default function ChannelList({ activeServerId, activeChannelId, setActiveChannelId, setActiveChannelName, isMobileView }) {
     const { currentUser } = useAuth();
     const [serverData, setServerData] = useState(null);
     const [dms, setDms] = useState([]);
@@ -83,6 +83,8 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     const [searchResults, setSearchResults] = useState([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
+
+    // ... (rest of the component logic remains the same until return)
 
     // Fetch Server Data or DMs
     useEffect(() => {
@@ -217,12 +219,12 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     if (activeServerId === 'home') {
         return (
             <div style={{
-                width: '240px',
-                height: '100vh',
+                width: isMobileView ? '100%' : '240px',
+                height: isMobileView ? '100%' : '100vh',
                 backgroundColor: 'var(--bg-secondary)',
                 display: 'flex',
                 flexDirection: 'column',
-                borderRight: '1px solid var(--glass-border)'
+                borderRight: isMobileView ? 'none' : '1px solid var(--glass-border)'
             }}>
                 {/* Header */}
                 <div style={{
@@ -401,12 +403,12 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
 
     return (
         <div style={{
-            width: '240px',
-            height: '100vh',
+            width: isMobileView ? '100%' : '240px',
+            height: isMobileView ? '100%' : '100vh',
             backgroundColor: 'var(--bg-secondary)',
             display: 'flex',
             flexDirection: 'column',
-            borderRight: '1px solid var(--glass-border)'
+            borderRight: isMobileView ? 'none' : '1px solid var(--glass-border)'
         }}>
             {/* Server Header */}
             <div style={{

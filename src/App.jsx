@@ -13,6 +13,8 @@ function PrivateRoute({ children }) {
   return currentUser ? children : <Navigate to="/login" />;
 }
 
+import MobileLayout from './components/MobileLayout';
+
 function Home() {
   const [activeServerId, setActiveServerId] = useState('home');
   const [activeChannelId, setActiveChannelId] = useState(null);
@@ -29,6 +31,10 @@ function Home() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  if (isMobile) {
+    return <MobileLayout />;
+  }
 
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
@@ -69,41 +75,8 @@ function Home() {
         VERY EARLY BETA BUILD V0.0.1
       </div>
 
-      {/* Mobile Menu Overlay */}
-      <AnimatePresence>
-        {isMobile && showMobileMenu && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShowMobileMenu(false)}
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              zIndex: 99,
-              backdropFilter: 'blur(2px)'
-            }}
-          />
-        )}
-      </AnimatePresence>
-
       {/* Navigation (Sidebar + ChannelList) */}
-      <motion.div
-        initial={false}
-        animate={isMobile ? { x: showMobileMenu ? 0 : '-100%' } : { x: 0 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        style={{
-          display: 'flex',
-          position: isMobile ? 'fixed' : 'relative',
-          zIndex: 100,
-          height: '100%',
-          boxShadow: isMobile ? '5px 0 15px rgba(0,0,0,0.5)' : 'none'
-        }}
-      >
+      <div style={{ display: 'flex', position: 'relative', zIndex: 100, height: '100%' }}>
         <Sidebar
           activeServerId={activeServerId}
           setActiveServerId={setActiveServerId}
@@ -111,20 +84,12 @@ function Home() {
         <ChannelList
           activeServerId={activeServerId}
           activeChannelId={activeChannelId}
-          setActiveChannelId={(id) => {
-            setActiveChannelId(id);
-            if (isMobile) setShowMobileMenu(false);
-          }}
+          setActiveChannelId={setActiveChannelId}
           setActiveChannelName={setActiveChannelName}
         />
-      </motion.div>
+      </div>
 
-      <div style={{
-        flex: 1,
-        position: 'relative',
-        overflow: 'hidden',
-        width: isMobile ? '100%' : 'auto' // Explicit width for mobile
-      }}>
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <AnimatePresence mode="wait">
           {activeChannelId === 'friends' ? (
             <motion.div
@@ -141,7 +106,6 @@ function Home() {
                   const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
                   setActiveChannelId(dmId);
                   setActiveChannelName(user.displayName);
-                  if (isMobile) setShowMobileMenu(false);
                 }}
               />
             </motion.div>
@@ -158,8 +122,7 @@ function Home() {
                 activeChannelId={activeChannelId}
                 activeChannelName={activeChannelName}
                 activeServerId={activeServerId}
-                isMobile={isMobile}
-                onOpenMenu={() => setShowMobileMenu(true)}
+                isMobile={false}
               />
             </motion.div>
           )}

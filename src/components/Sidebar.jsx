@@ -78,7 +78,7 @@ const ServerIcon = ({ icon, name, active, onClick, index, children, onContextMen
     );
 };
 
-export default function Sidebar({ activeServerId, setActiveServerId }) {
+export default function Sidebar({ activeServerId, setActiveServerId, isMobileView }) {
     const [servers, setServers] = useState([]);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [contextMenu, setContextMenu] = useState(null); // { x, y, serverId }
@@ -110,15 +110,17 @@ export default function Sidebar({ activeServerId, setActiveServerId }) {
 
     return (
         <div style={{
-            width: '72px',
-            height: '100vh',
+            width: isMobileView ? '100%' : '72px',
+            height: isMobileView ? 'auto' : '100vh',
             backgroundColor: '#0b0d0e',
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: isMobileView ? 'row' : 'column',
             alignItems: 'center',
-            padding: '12px 0',
+            padding: isMobileView ? '12px' : '12px 0',
             gap: '8px',
-            borderRight: '1px solid var(--glass-border)'
+            borderRight: isMobileView ? 'none' : '1px solid var(--glass-border)',
+            overflowX: isMobileView ? 'auto' : 'hidden',
+            overflowY: isMobileView ? 'hidden' : 'auto'
         }}>
             {/* Home Icon */}
             <ServerIcon
@@ -131,7 +133,13 @@ export default function Sidebar({ activeServerId, setActiveServerId }) {
                 <img src="https://assets-global.website-files.com/6257adef93867e56f84d3092/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png" alt="Home" style={{ width: '28px', height: '28px' }} />
             </ServerIcon>
 
-            <div style={{ width: '32px', height: '2px', backgroundColor: 'var(--glass-border)', margin: '4px 0' }} />
+            <div style={{
+                width: isMobileView ? '2px' : '32px',
+                height: isMobileView ? '32px' : '2px',
+                backgroundColor: 'var(--glass-border)',
+                margin: isMobileView ? '0 4px' : '4px 0',
+                flexShrink: 0
+            }} />
 
             {/* Server List */}
             <AnimatePresence>
