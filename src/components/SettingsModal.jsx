@@ -87,7 +87,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                             height: '100vh',
                             backgroundColor: 'rgba(0, 0, 0, 0.6)',
                             backdropFilter: 'blur(5px)',
-                            zIndex: 50
+                            zIndex: 2000
                         }}
                     />
 
@@ -107,7 +107,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                             border: '1px solid var(--glass-border)',
                             borderRadius: '16px',
                             padding: '0',
-                            zIndex: 51,
+                            zIndex: 2001,
                             boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
                             overflow: 'hidden',
                             display: 'flex',

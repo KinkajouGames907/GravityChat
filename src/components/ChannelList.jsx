@@ -127,7 +127,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                 const data = doc.data();
                 setServerData(data);
                 // Default to first text channel if none selected
-                if (!activeChannelId && data.channels?.length > 0) {
+                if (!activeChannelId && data.channels?.length > 0 && !isMobileView) {
                     const firstChannel = data.channels.find(c => c.type === 'text');
                     if (firstChannel) {
                         const uniqueId = `${activeServerId}-${firstChannel.name}`;
@@ -138,7 +138,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
             }
         });
         return unsubscribe;
-    }, [activeServerId, currentUser]);
+    }, [activeServerId, currentUser, isMobileView]);
 
     // Search Users Effect
     useEffect(() => {

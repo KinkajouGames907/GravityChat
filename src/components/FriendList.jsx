@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, MessageCircle, MoreVertical, Check, X, UserPlus } from 'lucide-react';
+import { Search, MessageCircle, MoreVertical, Check, X, UserPlus, Trash2, Ban } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, serverTimestamp } from 'firebase/firestore';
@@ -13,6 +13,7 @@ export default function FriendList({ onStartDM }) {
     const [pendingRequests, setPendingRequests] = useState([]);
     const [addFriendInput, setAddFriendInput] = useState('');
     const [addFriendStatus, setAddFriendStatus] = useState(null); // { type: 'success' | 'error', message: '' }
+    const [activeDropdown, setActiveDropdown] = useState(null); // uid of the friend whose menu is open
 
     // Fetch Friends and Requests
     useEffect(() => {
@@ -59,6 +60,13 @@ export default function FriendList({ onStartDM }) {
 
         return unsubscribe;
     }, [currentUser]);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => setActiveDropdown(null);
+        window.addEventListener('click', handleClickOutside);
+        return () => window.removeEventListener('click', handleClickOutside);
+    }, []);
 
     const sendFriendRequest = async () => {
         if (!addFriendInput.trim()) return;
@@ -137,6 +145,30 @@ export default function FriendList({ onStartDM }) {
         }
     };
 
+    const removeFriend = async (friendUid) => {
+        if (!window.confirm("Are you sure you want to remove this friend?")) return;
+        try {
+            await deleteDoc(doc(db, "users", currentUser.uid, "friends", friendUid));
+            // Optionally remove from their list too, but typically we just remove the connection
+            await deleteDoc(doc(db, "users", friendUid, "friends", currentUser.uid));
+        } catch (err) {
+            console.error("Error removing friend:", err);
+        }
+    };
+
+    const blockUser = async (friendUid) => {
+        if (!window.confirm("Are you sure you want to block this user?")) return;
+        try {
+            await setDoc(doc(db, "users", currentUser.uid, "friends", friendUid), {
+                status: 'blocked',
+                blockedAt: serverTimestamp()
+            });
+            // We don't necessarily tell them they are blocked
+        } catch (err) {
+            console.error("Error blocking user:", err);
+        }
+    };
+
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
             {/* Top Bar */}
@@ -153,7 +185,7 @@ export default function FriendList({ onStartDM }) {
                     <span style={{ fontWeight: 700 }}>Friends</span>
                 </div>
 
-                <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ display: 'flex', gap: '16px', overflowX: 'auto' }}>
                     {['Online', 'All', 'Pending', 'Add Friend'].map(tab => (
                         <button
                             key={tab}
@@ -166,6 +198,7 @@ export default function FriendList({ onStartDM }) {
                                 cursor: 'pointer',
                                 padding: '4px 8px',
                                 borderRadius: '4px',
+                                whiteSpace: 'nowrap',
                                 backgroundColor: activeTab === tab.toLowerCase().replace(' ', '') ? 'rgba(255,255,255,0.1)' : 'transparent'
                             }}
                         >
@@ -294,7 +327,8 @@ export default function FriendList({ onStartDM }) {
                                         justifyContent: 'space-between',
                                         padding: '12px',
                                         borderTop: '1px solid var(--glass-border)',
-                                        cursor: 'pointer'
+                                        cursor: 'pointer',
+                                        position: 'relative'
                                     }}
                                     className="hover:bg-white/5"
                                     onClick={() => onStartDM(friend)}
@@ -317,9 +351,87 @@ export default function FriendList({ onStartDM }) {
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button className="icon-btn"><MessageCircle size={20} /></button>
-                                        <button className="icon-btn"><MoreVertical size={20} /></button>
+                                        <button className="icon-btn" onClick={(e) => {
+                                            e.stopPropagation();
+                                            onStartDM(friend);
+                                        }}><MessageCircle size={20} /></button>
+                                        <button
+                                            className="icon-btn"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setActiveDropdown(activeDropdown === friend.uid ? null : friend.uid);
+                                            }}
+                                        >
+                                            <MoreVertical size={20} />
+                                        </button>
                                     </div>
+
+                                    {/* Dropdown Menu */}
+                                    <AnimatePresence>
+                                        {activeDropdown === friend.uid && (
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    right: '40px',
+                                                    top: '40px',
+                                                    backgroundColor: 'var(--bg-secondary)',
+                                                    border: '1px solid var(--glass-border)',
+                                                    borderRadius: '8px',
+                                                    padding: '4px',
+                                                    zIndex: 100,
+                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                                                    minWidth: '150px'
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <button
+                                                    onClick={() => removeFriend(friend.uid)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        width: '100%',
+                                                        padding: '8px 12px',
+                                                        border: 'none',
+                                                        background: 'transparent',
+                                                        color: '#f4212e',
+                                                        fontSize: '13px',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        textAlign: 'left',
+                                                        borderRadius: '4px'
+                                                    }}
+                                                    className="hover:bg-white/5"
+                                                >
+                                                    <Trash2 size={16} /> Remove Friend
+                                                </button>
+                                                <button
+                                                    onClick={() => blockUser(friend.uid)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        width: '100%',
+                                                        padding: '8px 12px',
+                                                        border: 'none',
+                                                        background: 'transparent',
+                                                        color: '#f4212e',
+                                                        fontSize: '13px',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        textAlign: 'left',
+                                                        borderRadius: '4px'
+                                                    }}
+                                                    className="hover:bg-white/5"
+                                                >
+                                                    <Ban size={16} /> Block
+                                                </button>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                 </div>
                             ))
                         )}
