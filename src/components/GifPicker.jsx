@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, X, TrendingUp, Loader } from 'lucide-react';
 
@@ -61,7 +62,7 @@ const GIF_CATEGORIES = {
     ]
 };
 
-export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'top' }) {
+export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'top', isMobile }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState('Trending');
     const [searchResults, setSearchResults] = useState([]);
@@ -157,218 +158,263 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
 
     const currentGifs = getCurrentGifs();
 
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <motion.div
-                    ref={pickerRef}
-                    initial={{ opacity: 0, scale: 0.9, y: position === 'top' ? 10 : -10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.9, y: position === 'top' ? 10 : -10 }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                    style={{
-                        position: 'absolute',
-                        [position]: '100%',
-                        right: 0,
-                        width: '420px',
-                        maxWidth: 'calc(100vw - 32px)',
-                        height: '450px',
-                        backgroundColor: 'var(--bg-secondary)',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: '12px',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden',
-                        zIndex: 1000,
-                        marginBottom: position === 'top' ? '8px' : 0,
-                        marginTop: position === 'bottom' ? '8px' : 0
-                    }}
-                >
-                    {/* Search Header */}
-                    <div style={{
-                        padding: '12px',
-                        borderBottom: '1px solid var(--glass-border)',
-                        backgroundColor: 'var(--bg-tertiary)'
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            backgroundColor: 'var(--bg-primary)',
-                            borderRadius: '8px',
-                            padding: '10px 12px',
-                            gap: '8px'
-                        }}>
-                            <Search size={18} color="var(--text-muted)" />
-                            <input
-                                ref={searchInputRef}
-                                type="text"
-                                placeholder="Search GIFs..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                style={{
-                                    flex: 1,
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: 'white',
-                                    fontSize: '14px',
-                                    outline: 'none'
-                                }}
-                            />
-                            {searchQuery && (
-                                <button
-                                    onClick={() => setSearchQuery('')}
-                                    style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        padding: '2px',
-                                        display: 'flex'
-                                    }}
-                                >
-                                    <X size={16} color="var(--text-muted)" />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Category Tabs */}
-                    {!searchQuery && (
-                        <div style={{
-                            display: 'flex',
-                            padding: '8px 12px',
-                            gap: '8px',
-                            borderBottom: '1px solid var(--glass-border)',
-                            overflowX: 'auto',
-                            flexShrink: 0
-                        }}>
-                            {['Trending', ...(recentGifs.length > 0 ? ['Recent'] : []), ...Object.keys(GIF_CATEGORIES)].map((category) => (
-                                <button
-                                    key={category}
-                                    onClick={() => setActiveCategory(category)}
-                                    style={{
-                                        background: activeCategory === category ? 'var(--accent)' : 'var(--bg-tertiary)',
-                                        border: 'none',
-                                        borderRadius: '16px',
-                                        padding: '6px 12px',
-                                        cursor: 'pointer',
-                                        color: activeCategory === category ? 'white' : 'var(--text-secondary)',
-                                        fontSize: '13px',
-                                        fontWeight: 600,
-                                        whiteSpace: 'nowrap',
-                                        transition: 'all 0.15s',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '4px'
-                                    }}
-                                >
-                                    {category === 'Trending' && <TrendingUp size={14} />}
-                                    {category}
-                                </button>
-                            ))}
-                        </div>
+    const pickerContent = (
+        <motion.div
+            ref={pickerRef}
+            initial={{ opacity: 0, scale: 0.9, y: isMobile ? 0 : (position === 'top' ? 10 : -10) }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: isMobile ? 0 : (position === 'top' ? 10 : -10) }}
+            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+            style={isMobile ? {
+                width: '90%',
+                maxWidth: '420px',
+                height: '60vh',
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: '16px',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                position: 'relative'
+            } : {
+                position: 'absolute',
+                [position]: '100%',
+                right: 0,
+                width: '420px',
+                maxWidth: 'calc(100vw - 32px)',
+                height: '450px',
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: '12px',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                zIndex: 1000,
+                marginBottom: position === 'top' ? '8px' : 0,
+                marginTop: position === 'bottom' ? '8px' : 0
+            }}
+        >
+            {/* Search Header */}
+            <div style={{
+                padding: '12px',
+                borderBottom: '1px solid var(--glass-border)',
+                backgroundColor: 'var(--bg-tertiary)'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    backgroundColor: 'var(--bg-primary)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    gap: '8px'
+                }}>
+                    <Search size={18} color="var(--text-muted)" />
+                    <input
+                        ref={searchInputRef}
+                        type="text"
+                        placeholder="Search GIFs..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        style={{
+                            flex: 1,
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '14px',
+                            outline: 'none'
+                        }}
+                    />
+                    {searchQuery && (
+                        <button
+                            onClick={() => setSearchQuery('')}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                display: 'flex'
+                            }}
+                        >
+                            <X size={16} color="var(--text-muted)" />
+                        </button>
                     )}
+                </div>
+            </div>
 
-                    {/* GIF Grid */}
-                    <div style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        padding: '12px'
-                    }}>
-                        {isSearching ? (
-                            <div style={{
+            {/* Category Tabs */}
+            {!searchQuery && (
+                <div style={{
+                    display: 'flex',
+                    padding: '8px 12px',
+                    gap: '8px',
+                    borderBottom: '1px solid var(--glass-border)',
+                    overflowX: 'auto',
+                    flexShrink: 0
+                }}>
+                    {['Trending', ...(recentGifs.length > 0 ? ['Recent'] : []), ...Object.keys(GIF_CATEGORIES)].map((category) => (
+                        <button
+                            key={category}
+                            onClick={() => setActiveCategory(category)}
+                            style={{
+                                background: activeCategory === category ? 'var(--accent)' : 'var(--bg-tertiary)',
+                                border: 'none',
+                                borderRadius: '16px',
+                                padding: '6px 12px',
+                                cursor: 'pointer',
+                                color: activeCategory === category ? 'white' : 'var(--text-secondary)',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                height: '200px',
-                                color: 'var(--text-muted)'
-                            }}>
-                                <Loader size={24} className="animate-spin" />
-                            </div>
-                        ) : (
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(2, 1fr)',
-                                gap: '8px'
-                            }}>
-                                {currentGifs.map((gif, index) => (
-                                    <motion.button
-                                        key={gif.id || index}
-                                        whileHover={{ scale: 1.02 }}
-                                        whileTap={{ scale: 0.98 }}
-                                        onClick={() => handleGifClick(gif)}
-                                        style={{
-                                            background: 'var(--bg-tertiary)',
-                                            border: 'none',
-                                            borderRadius: '8px',
-                                            padding: 0,
-                                            cursor: 'pointer',
-                                            overflow: 'hidden',
-                                            aspectRatio: '16/12',
-                                            position: 'relative'
-                                        }}
-                                    >
-                                        <img
-                                            src={gif.url}
-                                            alt={gif.title}
-                                            loading="lazy"
-                                            style={{
-                                                width: '100%',
-                                                height: '100%',
-                                                objectFit: 'cover'
-                                            }}
-                                        />
-                                        <div style={{
-                                            position: 'absolute',
-                                            bottom: 0,
-                                            left: 0,
-                                            right: 0,
-                                            padding: '20px 8px 6px',
-                                            background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
-                                            fontSize: '11px',
-                                            color: 'white',
-                                            textAlign: 'left'
-                                        }}>
-                                            {gif.title}
-                                        </div>
-                                    </motion.button>
-                                ))}
-                            </div>
-                        )}
-
-                        {!isSearching && currentGifs.length === 0 && (
-                            <div style={{
-                                textAlign: 'center',
-                                padding: '40px 20px',
-                                color: 'var(--text-muted)'
-                            }}>
-                                {activeCategory === 'Recent' ? (
-                                    <>
-                                        <div style={{ marginBottom: '8px' }}>No recent GIFs</div>
-                                        <div style={{ fontSize: '12px' }}>
-                                            GIFs you use will appear here
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div>No GIFs found</div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Powered By */}
-                    <div style={{
-                        padding: '8px 12px',
-                        borderTop: '1px solid var(--glass-border)',
-                        textAlign: 'center',
-                        fontSize: '11px',
-                        color: 'var(--text-muted)',
-                        backgroundColor: 'var(--bg-tertiary)'
-                    }}>
-                        GIFs powered by GIPHY
-                    </div>
-                </motion.div>
+                                gap: '4px'
+                            }}
+                        >
+                            {category === 'Trending' && <TrendingUp size={14} />}
+                            {category}
+                        </button>
+                    ))}
+                </div>
             )}
+
+            {/* GIF Grid */}
+            <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '12px'
+            }}>
+                {isSearching ? (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: '200px',
+                        color: 'var(--text-muted)'
+                    }}>
+                        <Loader size={24} className="animate-spin" />
+                    </div>
+                ) : (
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, 1fr)',
+                        gap: '8px'
+                    }}>
+                        {currentGifs.map((gif, index) => (
+                            <motion.button
+                                key={gif.id || index}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => handleGifClick(gif)}
+                                style={{
+                                    background: 'var(--bg-tertiary)',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    padding: 0,
+                                    cursor: 'pointer',
+                                    overflow: 'hidden',
+                                    aspectRatio: '16/12',
+                                    position: 'relative'
+                                }}
+                            >
+                                <img
+                                    src={gif.url}
+                                    alt={gif.title}
+                                    loading="lazy"
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover'
+                                    }}
+                                />
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    padding: '20px 8px 6px',
+                                    background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+                                    fontSize: '11px',
+                                    color: 'white',
+                                    textAlign: 'left'
+                                }}>
+                                    {gif.title}
+                                </div>
+                            </motion.button>
+                        ))}
+                    </div>
+                )}
+
+                {!isSearching && currentGifs.length === 0 && (
+                    <div style={{
+                        textAlign: 'center',
+                        padding: '40px 20px',
+                        color: 'var(--text-muted)'
+                    }}>
+                        {activeCategory === 'Recent' ? (
+                            <>
+                                <div style={{ marginBottom: '8px' }}>No recent GIFs</div>
+                                <div style={{ fontSize: '12px' }}>
+                                    GIFs you use will appear here
+                                </div>
+                            </>
+                        ) : (
+                            <div>No GIFs found</div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* Powered By */}
+            <div style={{
+                padding: '8px 12px',
+                borderTop: '1px solid var(--glass-border)',
+                textAlign: 'center',
+                fontSize: '11px',
+                color: 'var(--text-muted)',
+                backgroundColor: 'var(--bg-tertiary)'
+            }}>
+                GIFs powered by GIPHY
+            </div>
+        </motion.div>
+    );
+
+    if (isMobile) {
+        return createPortal(
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                            backdropFilter: 'blur(4px)',
+                            zIndex: 2000,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '20px'
+                        }}
+                        onClick={(e) => {
+                            if (e.target === e.currentTarget) onClose();
+                        }}
+                    >
+                        {pickerContent}
+                    </motion.div>
+                )}
+            </AnimatePresence>,
+            document.body
+        );
+    }
+
+    return (
+        <AnimatePresence>
+            {isOpen && pickerContent}
         </AnimatePresence>
     );
 }

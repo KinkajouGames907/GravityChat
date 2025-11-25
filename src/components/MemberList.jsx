@@ -124,7 +124,7 @@ export default function MemberList({ serverId }) {
 
     return (
         <div style={{
-            width: '240px',
+            width: '100%',
             backgroundColor: 'var(--bg-secondary)',
             borderLeft: '1px solid var(--glass-border)',
             display: 'flex',

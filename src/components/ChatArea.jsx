@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, Trash2, MoreHorizontal, Mic, X, Image as ImageIcon, FileText, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
@@ -746,14 +747,16 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                             <Bell size={20} />
                         </button>
                     )}
-                    <button
-                        className="icon-btn"
-                        onClick={() => setShowMemberList(!showMemberList)}
-                        style={{ color: showMemberList ? 'var(--accent)' : 'var(--text-secondary)' }}
-                        title="Toggle members"
-                    >
-                        <Users size={20} />
-                    </button>
+                    {activeServerId !== 'home' && (
+                        <button
+                            className="icon-btn"
+                            onClick={() => setShowMemberList(!showMemberList)}
+                            style={{ color: showMemberList ? 'var(--accent)' : 'var(--text-secondary)' }}
+                            title="Toggle members"
+                        >
+                            <Users size={20} />
+                        </button>
+                    )}
                     {!isMobile && (
                         <div style={{ position: 'relative' }}>
                             <input
@@ -966,6 +969,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     onClose={() => setShowEmojiPicker(false)}
                                     onEmojiSelect={handleEmojiSelect}
                                     position="top"
+                                    isMobile={isMobile}
                                 />
 
                                 {/* GIF Picker */}
@@ -974,6 +978,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     onClose={() => setShowGifPicker(false)}
                                     onGifSelect={handleGifSelect}
                                     position="top"
+                                    isMobile={isMobile}
                                 />
                             </div>
                         </form>
@@ -992,6 +997,73 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                         >
                             <MemberList serverId={activeServerId} />
                         </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Mobile Member List Modal */}
+                <AnimatePresence>
+                    {showMemberList && activeServerId !== 'home' && isMobile && (
+                        createPortal(
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                style={{
+                                    position: 'fixed',
+                                    inset: 0,
+                                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                                    backdropFilter: 'blur(4px)',
+                                    zIndex: 2000,
+                                    display: 'flex',
+                                    justifyContent: 'flex-end'
+                                }}
+                                onClick={(e) => {
+                                    if (e.target === e.currentTarget) setShowMemberList(false);
+                                }}
+                            >
+                                <motion.div
+                                    initial={{ x: '100%' }}
+                                    animate={{ x: 0 }}
+                                    exit={{ x: '100%' }}
+                                    transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                                    style={{
+                                        width: '80%',
+                                        maxWidth: '300px',
+                                        height: '100%',
+                                        backgroundColor: 'var(--bg-secondary)',
+                                        borderLeft: '1px solid var(--glass-border)',
+                                        boxShadow: '-5px 0 20px rgba(0,0,0,0.5)'
+                                    }}
+                                >
+                                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                        <div style={{
+                                            padding: '16px',
+                                            borderBottom: '1px solid var(--glass-border)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between'
+                                        }}>
+                                            <h3 style={{ margin: 0, fontSize: '16px' }}>Members</h3>
+                                            <button
+                                                onClick={() => setShowMemberList(false)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--text-muted)',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                <X size={20} />
+                                            </button>
+                                        </div>
+                                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                                            <MemberList serverId={activeServerId} />
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            </motion.div>,
+                            document.body
+                        )
                     )}
                 </AnimatePresence>
             </div>
