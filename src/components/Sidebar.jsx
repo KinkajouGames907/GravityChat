@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Compass } from 'lucide-react';
+import { Plus, MessageCircle, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
@@ -8,15 +8,15 @@ import ServerSettingsModal from './ServerSettingsModal';
 
 import serverPlaceholder from '../assets/server_placeholder.png';
 
-const ServerIcon = ({ icon, name, active, onClick, index, children, onContextMenu }) => {
+const ServerIcon = ({ icon, name, active, onClick, index, children, onContextMenu, isMobile, showLabel }) => {
     return (
         <motion.div
-            initial={{ opacity: 0, scale: 0 }}
+            initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{
-                delay: index * 0.1,
+                delay: index * 0.05,
                 type: "spring",
-                stiffness: 260,
+                stiffness: 300,
                 damping: 20
             }}
             onClick={onClick}
@@ -24,56 +24,76 @@ const ServerIcon = ({ icon, name, active, onClick, index, children, onContextMen
             style={{
                 position: 'relative',
                 display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
-                width: '48px',
-                height: '48px',
-                marginBottom: '8px',
+                width: isMobile ? '72px' : '48px',
+                marginBottom: isMobile ? 0 : '8px',
                 cursor: 'pointer',
-                group: 'server-icon'
+                gap: isMobile ? '6px' : 0
             }}
         >
-            {/* Active Indicator */}
-            <motion.div
-                animate={{
-                    height: active ? '40px' : '8px',
-                    opacity: active ? 1 : 0
-                }}
-                style={{
-                    position: 'absolute',
-                    left: '-16px',
-                    width: '4px',
-                    backgroundColor: 'white',
-                    borderRadius: '0 4px 4px 0',
-                }}
-            />
+            {/* Active Indicator (desktop only) */}
+            {!isMobile && (
+                <motion.div
+                    animate={{
+                        height: active ? '40px' : '8px',
+                        opacity: active ? 1 : 0
+                    }}
+                    style={{
+                        position: 'absolute',
+                        left: '-16px',
+                        width: '4px',
+                        backgroundColor: 'white',
+                        borderRadius: '0 4px 4px 0',
+                    }}
+                />
+            )}
 
             <motion.div
-                whileHover={{ borderRadius: '16px', scale: 1.1 }}
+                whileHover={{ borderRadius: '16px', scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 animate={{
                     borderRadius: active ? '16px' : '50%',
                 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 20 }}
                 style={{
-                    width: '100%',
-                    height: '100%',
+                    width: isMobile ? '56px' : '48px',
+                    height: isMobile ? '56px' : '48px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: 'white',
                     overflow: 'hidden',
                     transition: 'background-color 0.2s',
-                    fontSize: '14px',
+                    fontSize: isMobile ? '16px' : '14px',
                     fontWeight: 700,
                     backgroundImage: children ? 'none' : `url(${icon || serverPlaceholder})`,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
-                    backgroundColor: children ? (active ? 'var(--accent)' : 'var(--bg-tertiary)') : 'transparent'
+                    backgroundColor: children ? (active ? 'var(--accent)' : 'var(--bg-tertiary)') : 'var(--bg-tertiary)',
+                    border: active ? '2px solid var(--accent)' : '2px solid transparent',
+                    boxShadow: active ? '0 0 20px var(--accent-glow)' : 'none'
                 }}
             >
                 {children ? children : (!icon && name?.substring(0, 2).toUpperCase())}
             </motion.div>
+
+            {/* Label for mobile */}
+            {isMobile && showLabel && (
+                <span style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: active ? 'var(--accent)' : 'var(--text-muted)',
+                    textAlign: 'center',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '72px'
+                }}>
+                    {name?.length > 8 ? name.substring(0, 7) + '...' : name}
+                </span>
+            )}
         </motion.div>
     );
 };
@@ -81,7 +101,7 @@ const ServerIcon = ({ icon, name, active, onClick, index, children, onContextMen
 export default function Sidebar({ activeServerId, setActiveServerId, isMobileView }) {
     const [servers, setServers] = useState([]);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [contextMenu, setContextMenu] = useState(null); // { x, y, serverId }
+    const [contextMenu, setContextMenu] = useState(null);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [settingsServerId, setSettingsServerId] = useState(null);
 
@@ -108,23 +128,279 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
         return () => window.removeEventListener('click', handleClick);
     }, []);
 
+    // Mobile grid layout
+    if (isMobileView) {
+        return (
+            <div style={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px'
+            }}>
+                {/* Quick Actions */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '12px'
+                }}>
+                    <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setActiveServerId('home')}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            padding: '16px',
+                            backgroundColor: activeServerId === 'home' ? 'var(--accent-dim)' : 'var(--bg-secondary)',
+                            border: activeServerId === 'home' ? '1px solid var(--accent)' : '1px solid var(--glass-border)',
+                            borderRadius: '16px',
+                            cursor: 'pointer',
+                            color: activeServerId === 'home' ? 'var(--accent)' : 'var(--text-primary)'
+                        }}
+                    >
+                        <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '12px',
+                            background: 'var(--gradient-primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <MessageCircle size={20} color="white" />
+                        </div>
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: '14px' }}>Messages</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Direct chats</div>
+                        </div>
+                    </motion.button>
+
+                    <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setIsCreateModalOpen(true)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            padding: '16px',
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--glass-border)',
+                            borderRadius: '16px',
+                            cursor: 'pointer',
+                            color: 'var(--text-primary)'
+                        }}
+                    >
+                        <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '12px',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <Plus size={20} color="var(--success)" />
+                        </div>
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: '14px' }}>Create</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>New server</div>
+                        </div>
+                    </motion.button>
+                </div>
+
+                {/* Servers Grid */}
+                {servers.length > 0 && (
+                    <>
+                        <h3 style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: 'var(--text-muted)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            margin: '8px 0 0'
+                        }}>
+                            Your Servers
+                        </h3>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                            gap: '12px'
+                        }}>
+                            {servers.map((server, index) => (
+                                <motion.button
+                                    key={server.id}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => setActiveServerId(server.id)}
+                                    onContextMenu={(e) => handleContextMenu(e, server.id)}
+                                    style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '16px 12px',
+                                        backgroundColor: activeServerId === server.id ? 'var(--accent-dim)' : 'var(--bg-secondary)',
+                                        border: activeServerId === server.id ? '1px solid var(--accent)' : '1px solid var(--glass-border)',
+                                        borderRadius: '16px',
+                                        cursor: 'pointer',
+                                        color: 'var(--text-primary)',
+                                        position: 'relative'
+                                    }}
+                                >
+                                    <div style={{
+                                        width: '52px',
+                                        height: '52px',
+                                        borderRadius: '16px',
+                                        backgroundColor: 'var(--bg-tertiary)',
+                                        backgroundImage: server.icon ? `url(${server.icon})` : 'none',
+                                        backgroundSize: 'cover',
+                                        backgroundPosition: 'center',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '18px',
+                                        fontWeight: 700,
+                                        color: 'var(--text-primary)'
+                                    }}>
+                                        {!server.icon && server.name?.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    <span style={{
+                                        fontSize: '13px',
+                                        fontWeight: 600,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        maxWidth: '100%',
+                                        color: activeServerId === server.id ? 'var(--accent)' : 'var(--text-primary)'
+                                    }}>
+                                        {server.name}
+                                    </span>
+                                    {activeServerId === server.id && (
+                                        <motion.div
+                                            layoutId="activeServer"
+                                            style={{
+                                                position: 'absolute',
+                                                bottom: '-1px',
+                                                left: '50%',
+                                                transform: 'translateX(-50%)',
+                                                width: '40px',
+                                                height: '3px',
+                                                backgroundColor: 'var(--accent)',
+                                                borderRadius: '3px 3px 0 0'
+                                            }}
+                                        />
+                                    )}
+                                </motion.button>
+                            ))}
+                        </div>
+                    </>
+                )}
+
+                {servers.length === 0 && (
+                    <div style={{
+                        textAlign: 'center',
+                        padding: '40px 20px',
+                        color: 'var(--text-muted)'
+                    }}>
+                        <div style={{
+                            width: '64px',
+                            height: '64px',
+                            borderRadius: '50%',
+                            backgroundColor: 'var(--bg-tertiary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            margin: '0 auto 16px'
+                        }}>
+                            <Settings size={28} />
+                        </div>
+                        <p>No servers yet</p>
+                        <p style={{ fontSize: '13px' }}>Create one to get started!</p>
+                    </div>
+                )}
+
+                <CreateServerModal
+                    isOpen={isCreateModalOpen}
+                    onClose={() => setIsCreateModalOpen(false)}
+                />
+
+                <ServerSettingsModal
+                    isOpen={isSettingsOpen}
+                    onClose={() => setIsSettingsOpen(false)}
+                    serverId={settingsServerId}
+                />
+
+                {/* Context Menu */}
+                <AnimatePresence>
+                    {contextMenu && (
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            style={{
+                                position: 'fixed',
+                                top: contextMenu.y,
+                                left: contextMenu.x,
+                                backgroundColor: 'var(--bg-secondary)',
+                                padding: '8px',
+                                borderRadius: '12px',
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                                border: '1px solid var(--glass-border)',
+                                zIndex: 2000,
+                                minWidth: '160px'
+                            }}
+                        >
+                            <button
+                                onClick={() => {
+                                    setSettingsServerId(contextMenu.serverId);
+                                    setIsSettingsOpen(true);
+                                    setContextMenu(null);
+                                }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    textAlign: 'left',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: 600,
+                                    borderRadius: '8px'
+                                }}
+                            >
+                                <Settings size={16} />
+                                Server Settings
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        );
+    }
+
+    // Desktop sidebar layout
     return (
         <div style={{
-            width: isMobileView ? '100%' : '72px',
-            height: isMobileView ? 'auto' : '100vh',
+            width: '72px',
+            height: '100vh',
             backgroundColor: '#0b0d0e',
             display: 'flex',
-            flexDirection: isMobileView ? 'row' : 'column',
+            flexDirection: 'column',
             alignItems: 'center',
-            padding: isMobileView ? '12px' : '12px 0',
+            padding: '12px 0',
             gap: '8px',
-            borderRight: isMobileView ? 'none' : '1px solid var(--glass-border)',
-            overflowX: isMobileView ? 'auto' : 'hidden',
-            overflowY: isMobileView ? 'hidden' : 'auto'
+            borderRight: '1px solid var(--glass-border)',
+            overflowY: 'auto',
+            overflowX: 'hidden'
         }}>
             {/* Home Icon */}
             <ServerIcon
-                id="home"
                 name="Direct Messages"
                 active={activeServerId === 'home'}
                 onClick={() => setActiveServerId('home')}
@@ -134,10 +410,10 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
             </ServerIcon>
 
             <div style={{
-                width: isMobileView ? '2px' : '32px',
-                height: isMobileView ? '32px' : '2px',
+                width: '32px',
+                height: '2px',
                 backgroundColor: 'var(--glass-border)',
-                margin: isMobileView ? '0 4px' : '4px 0',
+                margin: '4px 0',
                 flexShrink: 0
             }} />
 
@@ -146,7 +422,7 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                 {servers.map((server, index) => (
                     <ServerIcon
                         key={server.id}
-                        id={server.id}
+                        icon={server.icon}
                         name={server.name}
                         active={activeServerId === server.id}
                         onClick={() => setActiveServerId(server.id)}
@@ -157,7 +433,6 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
             </AnimatePresence>
 
             <ServerIcon
-                id="add-server"
                 name="Add a Server"
                 active={false}
                 onClick={() => setIsCreateModalOpen(true)}
@@ -178,40 +453,53 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
             />
 
             {/* Context Menu */}
-            {contextMenu && (
-                <div style={{
-                    position: 'fixed',
-                    top: contextMenu.y,
-                    left: contextMenu.x,
-                    backgroundColor: 'var(--bg-secondary)',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                    zIndex: 2000
-                }}>
-                    <button
-                        onClick={() => {
-                            setSettingsServerId(contextMenu.serverId);
-                            setIsSettingsOpen(true);
-                            setContextMenu(null);
-                        }}
+            <AnimatePresence>
+                {contextMenu && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
                         style={{
-                            display: 'block',
-                            width: '100%',
-                            padding: '8px 12px',
-                            textAlign: 'left',
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'white',
-                            cursor: 'pointer',
-                            fontSize: '14px'
+                            position: 'fixed',
+                            top: contextMenu.y,
+                            left: contextMenu.x,
+                            backgroundColor: 'var(--bg-secondary)',
+                            padding: '8px',
+                            borderRadius: '12px',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                            border: '1px solid var(--glass-border)',
+                            zIndex: 2000,
+                            minWidth: '160px'
                         }}
-                        className="hover:bg-white/10"
                     >
-                        Server Settings
-                    </button>
-                </div>
-            )}
+                        <button
+                            onClick={() => {
+                                setSettingsServerId(contextMenu.serverId);
+                                setIsSettingsOpen(true);
+                                setContextMenu(null);
+                            }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                width: '100%',
+                                padding: '10px 12px',
+                                textAlign: 'left',
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: 600,
+                                borderRadius: '8px'
+                            }}
+                        >
+                            <Settings size={16} />
+                            Server Settings
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

@@ -1,28 +1,183 @@
 @import './styles/theme.css';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+/* Base styles */
+html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
 /* Mobile Optimizations */
 @media (max-width: 768px) {
     :root {
         --safe-area-bottom: env(safe-area-inset-bottom, 20px);
+        --safe-area-top: env(safe-area-inset-top, 0px);
     }
 
+    /* Hide scrollbar on mobile */
     ::-webkit-scrollbar {
         display: none;
+    }
+
+    * {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
     }
 
     body,
     #root {
         height: 100dvh;
-        /* Dynamic viewport height for mobile browsers */
         width: 100vw;
         overflow: hidden;
         position: fixed;
-        /* Prevent body scroll */
+        overscroll-behavior: none;
+        -webkit-overflow-scrolling: touch;
     }
 
+    /* Larger touch targets */
     .glossy-button {
-        padding: 10px 16px;
-        /* Larger touch targets */
+        padding: 12px 20px;
+        min-height: 44px;
     }
+
+    .icon-btn {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Prevent zoom on input focus */
+    input, textarea, select {
+        font-size: 16px !important;
+    }
+
+    /* Fix for iOS keyboard */
+    input:focus, textarea:focus {
+        outline: none;
+    }
+}
+
+/* Tablet styles */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .member-list {
+        width: 200px;
+    }
+}
+
+/* Large screens */
+@media (min-width: 1400px) {
+    :root {
+        --chat-max-width: 1200px;
+    }
+}
+
+/* Print styles */
+@media print {
+    body {
+        background: white;
+        color: black;
+    }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    :root {
+        --glass-border: rgba(255, 255, 255, 0.3);
+        --text-muted: #9ca3af;
+    }
+}
+
+/* Dark mode enforced */
+@media (prefers-color-scheme: light) {
+    /* Still use dark theme even if system is light */
+    :root {
+        color-scheme: dark;
+    }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+    .icon-btn:hover {
+        background: transparent;
+    }
+
+    .list-item:hover {
+        background: transparent;
+    }
+
+    /* Remove hover states that don't work well on touch */
+    .glossy-button:hover {
+        transform: none;
+    }
+}
+
+/* Landscape mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+    .mobile-nav {
+        height: 50px;
+    }
+}
+
+/* PWA safe areas */
+@supports (padding: env(safe-area-inset-bottom)) {
+    .mobile-nav {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .chat-input {
+        padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    }
+}
+
+/* Notch support */
+@supports (padding: max(0px)) {
+    .app-container {
+        padding-left: max(12px, env(safe-area-inset-left));
+        padding-right: max(12px, env(safe-area-inset-right));
+    }
+}
+
+/* Selection color */
+::selection {
+    background: var(--accent);
+    color: white;
+}
+
+::-moz-selection {
+    background: var(--accent);
+    color: white;
+}
+
+/* Placeholder styling */
+::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+}
+
+:-ms-input-placeholder {
+    color: var(--text-muted);
+}
+
+::-ms-input-placeholder {
+    color: var(--text-muted);
+}
+
+/* Image rendering */
+img {
+    image-rendering: -webkit-optimize-contrast;
+}
+
+/* Emoji rendering */
+.emoji {
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
 }
