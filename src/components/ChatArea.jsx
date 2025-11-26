@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, Trash2, MoreHorizontal, Mic, X, Image as ImageIcon, FileText, Download } from 'lucide-react';
+import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, Trash2, MoreHorizontal, Mic, X, Image as ImageIcon, FileText, Download, Flag } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, where, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import MemberList from './MemberList';
 import EmojiPicker from './EmojiPicker';
 import GifPicker from './GifPicker';
 import FileUpload from './FileUpload';
+import { isSuperAdmin } from '../utils/permissions';
 
 import userAvatar from '../assets/user_avatar.png';
 
@@ -23,7 +24,8 @@ const Message = ({
     onEdit,
     onDelete,
     currentUser,
-    showActions
+    showActions,
+    onReport
 }) => {
     const [showMenu, setShowMenu] = useState(false);
     const [showReactions, setShowReactions] = useState(false);
@@ -291,8 +293,8 @@ const Message = ({
                             </button>
                         )}
 
-                        {/* Delete Button (own messages only) */}
-                        {isOwn && (
+                        {/* Delete Button (own messages or Super Admin) */}
+                        {(isOwn || isSuperAdmin(currentUser)) && (
                             <button
                                 onClick={() => onDelete(message.id)}
                                 style={{
@@ -308,6 +310,29 @@ const Message = ({
                                 title="Delete message"
                             >
                                 <Trash2 size={18} />
+                            </button>
+                        )}
+
+                        {/* Report Button (others' messages) */}
+                        {!isOwn && (
+                            <button
+                                onClick={() => {
+                                    onReport(message);
+                                    setShowMenu(false);
+                                }}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    padding: '6px 8px',
+                                    cursor: 'pointer',
+                                    borderRadius: '4px',
+                                    color: 'var(--warning)',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }}
+                                title="Report message"
+                            >
+                                <Flag size={18} />
                             </button>
                         )}
 
@@ -664,6 +689,30 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         setNewMessage('');
     };
 
+    const handleReport = async (message) => {
+        const reason = prompt("Why are you reporting this message?");
+        if (!reason) return;
+
+        try {
+            await addDoc(collection(db, "reports"), {
+                type: 'message',
+                targetId: message.id,
+                content: message.text || 'Attachment',
+                reportedBy: currentUser.uid,
+                reportedUser: message.uid,
+                reason: reason,
+                createdAt: serverTimestamp(),
+                status: 'pending',
+                channelId: activeChannelId,
+                serverId: activeServerId
+            });
+            alert("Report submitted to moderators.");
+        } catch (error) {
+            console.error("Error submitting report:", error);
+            alert("Failed to submit report.");
+        }
+    };
+
     if (!activeChannelId) {
         return (
             <div style={{
@@ -813,30 +862,18 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     onReaction={handleReaction}
                                     onEdit={handleEditMessage}
                                     onDelete={handleDeleteMessage}
-                                    showActions={true}
+                                    onReport={handleReport}
+                                    showActions={!isMobile}
                                 />
                             ))}
                         </AnimatePresence>
-
-                        {/* Typing Indicator */}
-                        <AnimatePresence>
-                            {typingUsers.length > 0 && (
-                                <TypingIndicator typingUsers={typingUsers} />
-                            )}
-                        </AnimatePresence>
-
-                        <div ref={messagesEndRef} />
                     </div>
 
                     {/* Input Area */}
                     <div style={{
                         padding: isMobile ? '12px' : '16px',
-                        paddingBottom: isMobile ? 'calc(12px + var(--safe-area-bottom, 0px))' : '20px',
+                        paddingBottom: isMobile ? 'calc(12px + env(safe-area-inset-bottom, 0px))' : '20px',
                         flexShrink: 0,
-                        position: isMobile ? 'fixed' : 'relative',
-                        bottom: isMobile ? '60px' : 0,
-                        left: 0,
-                        right: 0,
                         backgroundColor: 'var(--bg-primary)',
                         borderTop: isMobile ? '1px solid var(--glass-border)' : 'none',
                         zIndex: 10

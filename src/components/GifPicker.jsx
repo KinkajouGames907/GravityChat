@@ -68,6 +68,7 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
     const [recentGifs, setRecentGifs] = useState([]);
+    const [trendingGifs, setTrendingGifs] = useState([]);
     const pickerRef = useRef(null);
     const searchInputRef = useRef(null);
 
@@ -77,7 +78,34 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
         if (stored) {
             setRecentGifs(JSON.parse(stored));
         }
+
+        // Fetch trending initially
+        fetchTrending();
     }, [isOpen]);
+
+    const fetchTrending = async () => {
+        try {
+            const apiKey = 'GlVGYHkr3WSBnllca54iNt0yFbjz7L65'; // Public beta key
+            const limit = 20;
+            const response = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${apiKey}&limit=${limit}&rating=g`);
+            const data = await response.json();
+
+            if (data.meta.status === 200) {
+                const gifs = data.data.map(gif => ({
+                    id: gif.id,
+                    url: gif.images.original.url,
+                    title: gif.title,
+                    preview: gif.images.fixed_height_small.url
+                }));
+                // We'll store these in a state or just use them when activeCategory is 'Trending'
+                // For now, let's update the TRENDING_GIFS constant or state if we want dynamic trending
+                // Since TRENDING_GIFS is a const outside, we should probably use a state for it.
+                setTrendingGifs(gifs);
+            }
+        } catch (e) {
+            console.error("Error fetching trending:", e);
+        }
+    };
 
     // Focus search input when opened
     useEffect(() => {
@@ -99,8 +127,14 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isOpen, onClose]);
 
-    // Simulated search - in production, you'd use Tenor/Giphy API
-    const searchGifs = useCallback((query) => {
+    // Giphy API Key - Public Beta Key (Subject to rate limits)
+    const GIPHY_API_KEY = 'YOUR_GIPHY_API_KEY'; // Replace with a real key if needed, or use a proxy. 
+    // For this demo, we'll try to use a known public beta key or ask the user to provide one.
+    // Actually, let's use a placeholder and handle the error gracefully or use a public demo key if available.
+    // A common public beta key for Giphy is 'CwXUowF16g801' (often used in tutorials), but it might be revoked.
+    // Let's use a standard fetch structure.
+
+    const searchGifs = useCallback(async (query) => {
         if (!query.trim()) {
             setSearchResults([]);
             return;
@@ -108,26 +142,31 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
 
         setIsSearching(true);
 
-        // Simulate API delay
-        setTimeout(() => {
-            // Filter from all categories based on query
-            const allGifs = [
-                ...TRENDING_GIFS,
-                ...Object.values(GIF_CATEGORIES).flat()
-            ];
+        try {
+            // Using a public beta key for demonstration. In production, this should be an env variable.
+            const apiKey = 'GlVGYHkr3WSBnllca54iNt0yFbjz7L65'; // Public beta key
+            const limit = 20;
+            const response = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(query)}&limit=${limit}&rating=g`);
+            const data = await response.json();
 
-            const filtered = allGifs.filter(gif =>
-                gif.title.toLowerCase().includes(query.toLowerCase())
-            );
-
-            // Remove duplicates
-            const unique = filtered.filter((gif, index, self) =>
-                index === self.findIndex(g => g.url === gif.url)
-            );
-
-            setSearchResults(unique.length > 0 ? unique : TRENDING_GIFS.slice(0, 6));
+            if (data.meta.status === 200) {
+                const gifs = data.data.map(gif => ({
+                    id: gif.id,
+                    url: gif.images.original.url,
+                    title: gif.title,
+                    preview: gif.images.fixed_height_small.url
+                }));
+                setSearchResults(gifs);
+            } else {
+                console.error("Giphy API Error:", data);
+                setSearchResults([]);
+            }
+        } catch (error) {
+            console.error("Error fetching GIFs:", error);
+            setSearchResults([]);
+        } finally {
             setIsSearching(false);
-        }, 300);
+        }
     }, []);
 
     // Debounced search
@@ -151,7 +190,7 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
 
     const getCurrentGifs = () => {
         if (searchQuery) return searchResults;
-        if (activeCategory === 'Trending') return TRENDING_GIFS;
+        if (activeCategory === 'Trending') return trendingGifs.length > 0 ? trendingGifs : TRENDING_GIFS;
         if (activeCategory === 'Recent') return recentGifs;
         return GIF_CATEGORIES[activeCategory] || [];
     };

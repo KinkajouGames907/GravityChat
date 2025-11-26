@@ -17,6 +17,7 @@ export default function MobileLayout() {
     const [activeChannelId, setActiveChannelId] = useState(null);
     const [activeChannelName, setActiveChannelName] = useState('general');
     const [showSettings, setShowSettings] = useState(false);
+    const [settingsInitialTab, setSettingsInitialTab] = useState('account');
     const { currentUser } = useAuth();
 
     const handleLogout = async () => {
@@ -225,7 +226,10 @@ export default function MobileLayout() {
                             marginBottom: '16px'
                         }}>
                             <button
-                                onClick={() => setShowSettings(true)}
+                                onClick={() => {
+                                    setSettingsInitialTab('account');
+                                    setShowSettings(true);
+                                }}
                                 style={{
                                     width: '100%',
                                     display: 'flex',
@@ -280,6 +284,10 @@ export default function MobileLayout() {
                             </button>
 
                             <button
+                                onClick={() => {
+                                    setSettingsInitialTab('privacy');
+                                    setShowSettings(true);
+                                }}
                                 style={{
                                     width: '100%',
                                     display: 'flex',
@@ -344,7 +352,7 @@ export default function MobileLayout() {
                             color: 'var(--text-muted)',
                             fontSize: '12px'
                         }}>
-                            Gravity v0.0.1 Beta
+                            Gravity Alpha 0.0.2
                         </div>
                     </div>
                 );
@@ -394,7 +402,12 @@ export default function MobileLayout() {
             {/* Settings Modal */}
             <SettingsModal
                 isOpen={showSettings}
-                onClose={() => setShowSettings(false)}
+                onClose={() => {
+                    setShowSettings(false);
+                    // Reset initial tab when closing
+                    setSettingsInitialTab('account');
+                }}
+                initialTab={settingsInitialTab}
             />
         </div>
     );

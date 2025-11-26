@@ -112,6 +112,94 @@ export default function Login() {
                     Sign in with Google <ArrowRight size={18} />
                 </button>
 
+                {/* Quick Login for Known Accounts */}
+                {(() => {
+                    const knownAccounts = JSON.parse(localStorage.getItem('knownAccounts') || '[]');
+                    if (knownAccounts.length === 0) return null;
+
+                    return (
+                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                color: 'var(--text-muted)',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                margin: '10px 0 5px'
+                            }}>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+                                SWITCH ACCOUNTS
+                                <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+                            </div>
+
+                            {knownAccounts.map(acc => (
+                                <button
+                                    key={acc.uid}
+                                    onClick={async () => {
+                                        console.log("Attempting Quick Login for:", acc.email);
+                                        setError('');
+                                        try {
+                                            const provider = new GoogleAuthProvider();
+                                            provider.setCustomParameters({ login_hint: acc.email });
+                                            const result = await signInWithPopup(auth, provider);
+                                            // Sync user to Firestore
+                                            const user = result.user;
+                                            const { doc, setDoc, getFirestore } = await import('firebase/firestore');
+                                            const db = getFirestore();
+                                            await setDoc(doc(db, "users", user.uid), {
+                                                uid: user.uid,
+                                                displayName: user.displayName,
+                                                email: user.email,
+                                                photoURL: user.photoURL,
+                                                lastSeen: new Date()
+                                            }, { merge: true });
+                                            navigate('/');
+                                        } catch (err) {
+                                            console.error("Quick Login Error:", err);
+                                            setError(`Login Failed: ${err.message}`);
+                                        }
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px',
+                                        padding: '10px',
+                                        background: 'rgba(255,255,255,0.05)',
+                                        border: '1px solid var(--glass-border)',
+                                        borderRadius: '12px',
+                                        cursor: 'pointer',
+                                        color: 'white',
+                                        textAlign: 'left',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                                >
+                                    <div style={{
+                                        width: '32px',
+                                        height: '32px',
+                                        borderRadius: '50%',
+                                        backgroundImage: `url(${acc.photoURL})`,
+                                        backgroundSize: 'cover',
+                                        backgroundPosition: 'center',
+                                        border: '1px solid var(--glass-border)'
+                                    }} />
+                                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                                        <div style={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {acc.displayName}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {acc.email}
+                                        </div>
+                                    </div>
+                                    <ArrowRight size={14} color="var(--text-muted)" />
+                                </button>
+                            ))}
+                        </div>
+                    );
+                })()}
+
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
                     By signing in, you agree to our Terms of Service and Privacy Policy.
                 </p>

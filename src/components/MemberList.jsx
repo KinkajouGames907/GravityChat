@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Crown, Shield } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, onSnapshot } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import userAvatar from '../assets/user_avatar.png';
 
 export default function MemberList({ serverId }) {
@@ -12,28 +12,49 @@ export default function MemberList({ serverId }) {
     useEffect(() => {
         if (!serverId || serverId === 'home') return;
 
-        const q = query(collection(db, "users"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const users = snapshot.docs.map(doc => {
-                const data = doc.data();
-                const isOnline = data.lastSeen && (new Date() - data.lastSeen.toDate()) < 2 * 60 * 1000;
-                return {
-                    uid: doc.id,
-                    ...data,
-                    status: isOnline ? 'online' : 'offline'
-                };
+        // Listen to the members subcollection
+        const q = query(collection(db, "servers", serverId, "members"));
+
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
+            const memberPromises = snapshot.docs.map(async (memberDoc) => {
+                const memberData = memberDoc.data();
+                const uid = memberDoc.id;
+
+                // Fetch user profile
+                // In a real app, we might want to cache this or use a separate listener for users
+                // For MVP, getting the doc once is okay, but real-time status updates won't reflect immediately 
+                // unless we listen to users too. 
+                // To keep it simple and fix the "showing non-members" issue first:
+                try {
+                    const userSnap = await getDoc(doc(db, "users", uid));
+                    const userData = userSnap.exists() ? userSnap.data() : {};
+
+                    const isOnline = userData.lastSeen && (new Date() - userData.lastSeen.toDate()) < 2 * 60 * 1000;
+
+                    return {
+                        uid,
+                        ...userData,
+                        ...memberData, // Roles etc
+                        status: isOnline ? 'online' : 'offline'
+                    };
+                } catch (e) {
+                    console.error("Error fetching user data for member:", uid, e);
+                    return null;
+                }
             });
 
+            const resolvedMembers = (await Promise.all(memberPromises)).filter(m => m !== null);
+
             // Sort: Online first, then alphabetical
-            users.sort((a, b) => {
+            resolvedMembers.sort((a, b) => {
                 if (a.status === b.status) return (a.displayName || '').localeCompare(b.displayName || '');
                 return a.status === 'online' ? -1 : 1;
             });
 
-            setMembers(users);
+            setMembers(resolvedMembers);
         });
 
-        return unsubscribe;
+        return () => unsubscribe();
     }, [serverId]);
 
     // Filter members based on search
@@ -43,84 +64,6 @@ export default function MemberList({ serverId }) {
 
     const onlineMembers = filteredMembers.filter(m => m.status === 'online');
     const offlineMembers = filteredMembers.filter(m => m.status === 'offline');
-
-    const MemberItem = ({ member, index }) => (
-        <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.03 }}
-            whileHover={{ backgroundColor: 'var(--bg-hover)' }}
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                opacity: member.status === 'offline' ? 0.5 : 1,
-                transition: 'all 0.15s'
-            }}
-        >
-            <div style={{ position: 'relative', marginRight: '12px' }}>
-                <div style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    backgroundImage: `url(${member.photoURL || userAvatar})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center'
-                }} />
-                {member.status === 'online' && (
-                    <div style={{
-                        position: 'absolute',
-                        bottom: '-2px',
-                        right: '-2px',
-                        width: '12px',
-                        height: '12px',
-                        borderRadius: '50%',
-                        backgroundColor: 'var(--success)',
-                        border: '2px solid var(--bg-secondary)'
-                    }} />
-                )}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                }}>
-                    <span style={{
-                        fontWeight: 600,
-                        fontSize: '14px',
-                        color: member.status === 'online' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                    }}>
-                        {member.displayName || 'Unknown'}
-                    </span>
-                    {/* Role badges - placeholder */}
-                    {member.isOwner && (
-                        <Crown size={12} color="#fbbf24" />
-                    )}
-                    {member.isMod && (
-                        <Shield size={12} color="var(--accent)" />
-                    )}
-                </div>
-                {member.customStatus && (
-                    <div style={{
-                        fontSize: '11px',
-                        color: 'var(--text-muted)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                    }}>
-                        {member.customStatus}
-                    </div>
-                )}
-            </div>
-        </motion.div>
-    );
 
     return (
         <div style={{
@@ -224,3 +167,81 @@ export default function MemberList({ serverId }) {
         </div>
     );
 }
+
+const MemberItem = ({ member, index }) => (
+    <motion.div
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: index * 0.03 }}
+        whileHover={{ backgroundColor: 'var(--bg-hover)' }}
+        style={{
+            display: 'flex',
+            alignItems: 'center',
+            padding: '8px 12px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            opacity: member.status === 'offline' ? 0.5 : 1,
+            transition: 'all 0.15s'
+        }}
+    >
+        <div style={{ position: 'relative', marginRight: '12px' }}>
+            <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--bg-tertiary)',
+                backgroundImage: `url(${member.photoURL || userAvatar})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center'
+            }} />
+            {member.status === 'online' && (
+                <div style={{
+                    position: 'absolute',
+                    bottom: '-2px',
+                    right: '-2px',
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--success)',
+                    border: '2px solid var(--bg-secondary)'
+                }} />
+            )}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+            }}>
+                <span style={{
+                    fontWeight: 600,
+                    fontSize: '14px',
+                    color: member.status === 'online' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                }}>
+                    {member.displayName || 'Unknown'}
+                </span>
+                {/* Role badges - placeholder */}
+                {member.isOwner && (
+                    <Crown size={12} color="#fbbf24" />
+                )}
+                {member.isMod && (
+                    <Shield size={12} color="var(--accent)" />
+                )}
+            </div>
+            {member.customStatus && (
+                <div style={{
+                    fontSize: '11px',
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                }}>
+                    {member.customStatus}
+                </div>
+            )}
+        </div>
+    </motion.div>
+);

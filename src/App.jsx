@@ -72,7 +72,7 @@ function Home() {
         zIndex: 1000,
         fontFamily: 'monospace'
       }}>
-        VERY EARLY BETA BUILD V0.0.1
+        VERY EARLY ALPHA BUILD V0.0.2
       </div>
 
       {/* Navigation (Sidebar + ChannelList) */}

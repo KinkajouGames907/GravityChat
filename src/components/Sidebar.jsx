@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Plus, MessageCircle, Settings } from 'lucide-react';
+import { Plus, MessageCircle, Settings, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, where, documentId } from 'firebase/firestore';
+import { useAuth } from '../context/AuthContext';
 import CreateServerModal from './CreateServerModal';
 import ServerSettingsModal from './ServerSettingsModal';
+import ServerBrowser from './ServerBrowser';
+import SuperAdminModal from './SuperAdminModal';
+import { isSuperAdmin } from '../utils/permissions';
 
 import serverPlaceholder from '../assets/server_placeholder.png';
 
@@ -101,21 +105,35 @@ const ServerIcon = ({ icon, name, active, onClick, index, children, onContextMen
 export default function Sidebar({ activeServerId, setActiveServerId, isMobileView }) {
     const [servers, setServers] = useState([]);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isBrowserOpen, setIsBrowserOpen] = useState(false);
+    const [isSuperAdminOpen, setIsSuperAdminOpen] = useState(false);
     const [contextMenu, setContextMenu] = useState(null);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [settingsServerId, setSettingsServerId] = useState(null);
+    const { currentUser } = useAuth();
 
     useEffect(() => {
-        const q = query(collection(db, "servers"), orderBy("createdAt", "desc"));
+        if (!currentUser?.joinedServers || currentUser.joinedServers.length === 0) {
+            setServers([]);
+            return;
+        }
+
+        // Limit to 30 for now to fit 'in' query limit
+        const safeIds = currentUser.joinedServers.slice(0, 30);
+        const q = query(collection(db, "servers"), where(documentId(), "in", safeIds));
+
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const srvs = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
+            // Sort manually
+            srvs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
             setServers(srvs);
         });
-        return unsubscribe;
-    }, []);
+
+        return () => unsubscribe();
+    }, [JSON.stringify(currentUser?.joinedServers)]);
 
     const handleContextMenu = (e, serverId) => {
         e.preventDefault();
@@ -143,6 +161,73 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                     gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: '12px'
                 }}>
+                    <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setIsBrowserOpen(true)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            padding: '16px',
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--glass-border)',
+                            borderRadius: '16px',
+                            cursor: 'pointer',
+                            color: 'var(--text-primary)',
+                            gridColumn: '1 / -1' // Full width
+                        }}
+                    >
+                        <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '12px',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <Compass size={20} color="#3b82f6" />
+                        </div>
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: '14px' }}>Discover</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Find communities</div>
+                        </div>
+                    </motion.button>
+
+                    {isSuperAdmin(currentUser) && (
+                        <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsSuperAdminOpen(true)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '16px',
+                                backgroundColor: 'var(--bg-secondary)',
+                                border: '1px solid var(--glass-border)',
+                                borderRadius: '16px',
+                                cursor: 'pointer',
+                                color: 'var(--text-primary)',
+                                gridColumn: '1 / -1'
+                            }}
+                        >
+                            <div style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <Settings size={20} color="white" />
+                            </div>
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 700, fontSize: '14px' }}>Super Admin</div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Global control</div>
+                            </div>
+                        </motion.button>
+                    )}
                     <motion.button
                         whileTap={{ scale: 0.95 }}
                         onClick={() => setActiveServerId('home')}
@@ -292,6 +377,30 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                                             }}
                                         />
                                     )}
+
+                                    {/* Mobile Settings Button */}
+                                    <div
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSettingsServerId(server.id);
+                                            setIsSettingsOpen(true);
+                                        }}
+                                        style={{
+                                            position: 'absolute',
+                                            top: '8px',
+                                            right: '8px',
+                                            padding: '8px',
+                                            borderRadius: '50%',
+                                            backgroundColor: 'rgba(0,0,0,0.5)',
+                                            color: 'white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            backdropFilter: 'blur(4px)'
+                                        }}
+                                    >
+                                        <Settings size={14} />
+                                    </div>
                                 </motion.button>
                             ))}
                         </div>
@@ -330,6 +439,17 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                     isOpen={isSettingsOpen}
                     onClose={() => setIsSettingsOpen(false)}
                     serverId={settingsServerId}
+                />
+
+                <ServerBrowser
+                    isOpen={isBrowserOpen}
+                    onClose={() => setIsBrowserOpen(false)}
+                    onJoinServer={(serverId) => setActiveServerId(serverId)}
+                />
+
+                <SuperAdminModal
+                    isOpen={isSuperAdminOpen}
+                    onClose={() => setIsSuperAdminOpen(false)}
                 />
 
                 {/* Context Menu */}
@@ -441,6 +561,35 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                 <Plus size={24} color="#23a559" />
             </ServerIcon>
 
+            <ServerIcon
+                name="Discover Servers"
+                active={false}
+                onClick={() => setIsBrowserOpen(true)}
+                index={servers.length + 2}
+            >
+                <Compass size={24} color="#dbdee1" />
+            </ServerIcon>
+
+            {isSuperAdmin(currentUser) && (
+                <ServerIcon
+                    name="Super Admin"
+                    active={false}
+                    onClick={() => setIsSuperAdminOpen(true)}
+                    index={servers.length + 3}
+                >
+                    <div style={{
+                        width: '100%',
+                        height: '100%',
+                        background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <Settings size={24} color="white" />
+                    </div>
+                </ServerIcon>
+            )}
+
             <CreateServerModal
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
@@ -450,6 +599,17 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                 isOpen={isSettingsOpen}
                 onClose={() => setIsSettingsOpen(false)}
                 serverId={settingsServerId}
+            />
+
+            <ServerBrowser
+                isOpen={isBrowserOpen}
+                onClose={() => setIsBrowserOpen(false)}
+                onJoinServer={(serverId) => setActiveServerId(serverId)}
+            />
+
+            <SuperAdminModal
+                isOpen={isSuperAdminOpen}
+                onClose={() => setIsSuperAdminOpen(false)}
             />
 
             {/* Context Menu */}

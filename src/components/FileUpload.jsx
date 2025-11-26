@@ -6,13 +6,13 @@ import { Image, FileText, Film, X, Upload, Loader, AlertCircle } from 'lucide-re
 // File size limits
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_GIF_SIZE = 15 * 1024 * 1024; // 15MB
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB for text files
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 
 // Allowed file types
 const ALLOWED_TYPES = {
     image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
     gif: ['image/gif'],
-    text: ['text/plain', 'text/markdown', 'text/csv', 'application/json']
+    text: ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/html']
 };
 
 export default function FileUpload({ isOpen, onClose, onFileSelect }) {
@@ -54,7 +54,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
             setError('Image is too large. Maximum size is 10MB.');
             return false;
         } else if (isText && file.size > MAX_FILE_SIZE) {
-            setError('File is too large. Maximum size is 5MB.');
+            setError('File is too large. Maximum size is 500MB.');
             return false;
         }
 
@@ -231,7 +231,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
                                 <input
                                     ref={fileInputRef}
                                     type="file"
-                                    accept="image/*,.txt,.md,.csv,.json"
+                                    accept="image/*,.txt,.md,.csv,.json,.html"
                                     onChange={handleFileInput}
                                     style={{ display: 'none' }}
                                 />
@@ -349,7 +349,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
                                     fontSize: '12px',
                                     color: 'var(--text-muted)'
                                 }}>
-                                    <FileText size={16} /> Text (5MB)
+                                    <FileText size={16} /> Text/HTML (500MB)
                                 </div>
                             </div>
                         </div>

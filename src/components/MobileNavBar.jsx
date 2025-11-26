@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { Compass, MessageSquare, Users, User } from 'lucide-react';
 
 const tabs = [
-    { id: 'servers', label: 'Explore', icon: Compass },
+    { id: 'servers', label: 'Servers', icon: Compass },
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'friends', label: 'Friends', icon: Users },
     { id: 'profile', label: 'You', icon: User }

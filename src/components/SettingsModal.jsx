@@ -1,20 +1,41 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Save, Loader, Trash2, AlertTriangle, Camera, ChevronLeft } from 'lucide-react';
-import { updateProfile, deleteUser } from 'firebase/auth';
+import {
+    X,
+    User,
+    Save,
+    Loader,
+    Trash2,
+    AlertTriangle,
+    Camera,
+    ChevronLeft,
+    LogOut,
+    Users,
+    Plus,
+    Shield
+} from 'lucide-react';
+import { updateProfile, deleteUser, signOut } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { doc, setDoc, deleteDoc, getFirestore } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import userAvatar from '../assets/user_avatar.png';
 
-export default function SettingsModal({ isOpen, onClose }) {
+export default function SettingsModal({ isOpen, onClose, initialTab }) {
     const { currentUser } = useAuth();
-    const [activeTab, setActiveTab] = useState('account');
+    const [activeTab, setActiveTab] = useState(isOpen ? (initialTab || 'account') : 'account');
     const [displayName, setDisplayName] = useState('');
     const [photoURL, setPhotoURL] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState(null);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+    // Reset tab when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            setActiveTab(initialTab || 'account');
+        }
+    }, [isOpen, initialTab]);
 
     useEffect(() => {
         if (currentUser) {
@@ -29,8 +50,25 @@ export default function SettingsModal({ isOpen, onClose }) {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
+    const tabs = [
+        { id: 'account', label: 'My Account', icon: User },
+        { id: 'privacy', label: 'Privacy & Safety', icon: Shield },
+        { id: 'profiles', label: 'Profiles', icon: Users },
+        { id: 'danger', label: 'Danger Zone', icon: AlertTriangle, danger: true }
+    ];
+
+    const handleSignOut = async () => {
+        try {
+            await signOut(auth);
+            onClose();
+        } catch (error) {
+            console.error('Error signing out:', error);
+            setMessage({ type: 'error', text: 'Failed to sign out' });
+        }
+    };
+
     const handleSave = async () => {
-        if (!displayName.trim()) return;
+        if (!currentUser) return;
         setIsLoading(true);
         setMessage(null);
 
@@ -40,48 +78,149 @@ export default function SettingsModal({ isOpen, onClose }) {
                 photoURL: photoURL
             });
 
+            // Update Firestore user document
             const db = getFirestore();
-            const userRef = doc(db, "users", currentUser.uid);
-            await setDoc(userRef, {
+            await setDoc(doc(db, 'users', currentUser.uid), {
                 displayName: displayName,
-                photoURL: photoURL
+                photoURL: photoURL,
+                email: currentUser.email,
+                lastSeen: new Date()
             }, { merge: true });
 
             setMessage({ type: 'success', text: 'Profile updated successfully!' });
             setTimeout(() => setMessage(null), 3000);
         } catch (error) {
-            console.error("Error updating profile:", error);
-            setMessage({ type: 'error', text: 'Failed to update profile.' });
+            console.error('Error updating profile:', error);
+            setMessage({ type: 'error', text: 'Failed to update profile' });
         } finally {
             setIsLoading(false);
         }
     };
 
     const handleDeleteAccount = async () => {
-        if (!window.confirm("Are you sure you want to delete your account? This action is irreversible.")) return;
+        if (!window.confirm('Are you sure you want to delete your account? This cannot be undone.')) return;
 
         setIsLoading(true);
         try {
             const db = getFirestore();
-            await deleteDoc(doc(db, "users", currentUser.uid));
+            await deleteDoc(doc(db, 'users', currentUser.uid));
             await deleteUser(currentUser);
             onClose();
         } catch (error) {
-            console.error("Error deleting account:", error);
-            if (error.code === 'auth/requires-recent-login') {
-                setMessage({ type: 'error', text: 'Please log out and log in again to delete your account.' });
-            } else {
-                setMessage({ type: 'error', text: 'Failed to delete account.' });
-            }
+            console.error('Error deleting account:', error);
+            setMessage({ type: 'error', text: 'Failed to delete account. You may need to re-login first.' });
         } finally {
             setIsLoading(false);
         }
     };
 
-    const tabs = [
-        { id: 'account', label: 'My Account', icon: User },
-        { id: 'danger', label: 'Danger Zone', icon: AlertTriangle, danger: true }
-    ];
+    {
+        activeTab === 'privacy' && (
+            <motion.div
+                key="privacy"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.15 }}
+            >
+                <h3 style={{ margin: '0 0 20px', color: 'white', fontSize: '18px' }}>
+                    Privacy & Safety
+                </h3>
+
+                {/* Safety Toggles */}
+                <div style={{ marginBottom: '32px' }}>
+                    <h4 style={{
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        color: 'var(--text-muted)',
+                        textTransform: 'uppercase',
+                        marginBottom: '16px'
+                    }}>
+                        Safety Defaults
+                    </h4>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                        <div>
+                            <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: '4px' }}>
+                                Allow Direct Messages
+                            </div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                Allow direct messages from server members
+                            </div>
+                        </div>
+                        <div style={{
+                            width: '44px',
+                            height: '24px',
+                            backgroundColor: 'var(--success)',
+                            borderRadius: '12px',
+                            position: 'relative',
+                            cursor: 'pointer'
+                        }}>
+                            <div style={{
+                                width: '20px',
+                                height: '20px',
+                                backgroundColor: 'white',
+                                borderRadius: '50%',
+                                position: 'absolute',
+                                top: '2px',
+                                right: '2px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                            }} />
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                            <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: '4px' }}>
+                                Filter Explicit Content
+                            </div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                Automatically scan and delete explicit media
+                            </div>
+                        </div>
+                        <div style={{
+                            width: '44px',
+                            height: '24px',
+                            backgroundColor: 'var(--success)',
+                            borderRadius: '12px',
+                            position: 'relative',
+                            cursor: 'pointer'
+                        }}>
+                            <div style={{
+                                width: '20px',
+                                height: '20px',
+                                backgroundColor: 'white',
+                                borderRadius: '50%',
+                                position: 'absolute',
+                                top: '2px',
+                                right: '2px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                            }} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Privacy Policy */}
+                <div style={{
+                    padding: '20px',
+                    backgroundColor: 'rgba(29, 155, 240, 0.05)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(29, 155, 240, 0.1)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', color: 'var(--accent)' }}>
+                        <Shield size={20} />
+                        <span style={{ fontWeight: 700 }}>Privacy Policy</span>
+                    </div>
+                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6', margin: 0 }}>
+                        We value your privacy. Your data is stored securely on Google Firebase.
+                        We do not sell your personal data to third parties.
+                        Messages are encrypted in transit.
+                        By using Gravity, you agree to our Terms of Service and Community Guidelines.
+                    </p>
+                </div>
+            </motion.div>
+        )
+    }
 
     return createPortal(
         <AnimatePresence>
@@ -213,6 +352,30 @@ export default function SettingsModal({ isOpen, onClose }) {
                                         </button>
                                     );
                                 })}
+                                <div style={{ marginTop: 'auto', paddingTop: '8px', borderTop: isMobile ? 'none' : '1px solid var(--glass-border)' }}>
+                                    <button
+                                        onClick={handleSignOut}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '10px',
+                                            width: isMobile ? 'auto' : '100%',
+                                            padding: isMobile ? '10px 16px' : '12px 14px',
+                                            borderRadius: '10px',
+                                            border: 'none',
+                                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                            color: 'var(--danger)',
+                                            cursor: 'pointer',
+                                            fontWeight: 600,
+                                            fontSize: '14px',
+                                            whiteSpace: 'nowrap',
+                                            transition: 'all 0.15s'
+                                        }}
+                                    >
+                                        <LogOut size={18} />
+                                        Sign Out
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Content */}
@@ -374,6 +537,112 @@ export default function SettingsModal({ isOpen, onClose }) {
                                                     </>
                                                 )}
                                             </button>
+                                        </motion.div>
+                                    )}
+
+                                    {activeTab === 'profiles' && (
+                                        <motion.div
+                                            key="profiles"
+                                            initial={{ opacity: 0, x: 20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: -20 }}
+                                            transition={{ duration: 0.15 }}
+                                        >
+                                            <h3 style={{
+                                                margin: '0 0 16px',
+                                                color: 'white',
+                                                fontSize: '18px'
+                                            }}>
+                                                Switch Accounts
+                                            </h3>
+
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                {JSON.parse(localStorage.getItem('knownAccounts') || '[]').map((acc) => {
+                                                    const isCurrent = acc.uid === currentUser?.uid;
+                                                    return (
+                                                        <div
+                                                            key={acc.uid}
+                                                            onClick={() => {
+                                                                if (!isCurrent) handleSignOut();
+                                                            }}
+                                                            style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '12px',
+                                                                padding: '12px',
+                                                                backgroundColor: isCurrent ? 'var(--bg-tertiary)' : 'var(--bg-primary)',
+                                                                borderRadius: '12px',
+                                                                border: isCurrent ? '1px solid var(--accent)' : '1px solid var(--glass-border)',
+                                                                cursor: isCurrent ? 'default' : 'pointer',
+                                                                opacity: isCurrent ? 1 : 0.7,
+                                                                transition: 'all 0.2s'
+                                                            }}
+                                                            onMouseEnter={(e) => !isCurrent && (e.currentTarget.style.opacity = 1)}
+                                                            onMouseLeave={(e) => !isCurrent && (e.currentTarget.style.opacity = 0.7)}
+                                                        >
+                                                            <div style={{
+                                                                width: '40px',
+                                                                height: '40px',
+                                                                borderRadius: '50%',
+                                                                backgroundImage: `url(${acc.photoURL || userAvatar})`,
+                                                                backgroundSize: 'cover',
+                                                                backgroundPosition: 'center',
+                                                                border: '2px solid var(--glass-border)'
+                                                            }} />
+                                                            <div style={{ flex: 1 }}>
+                                                                <div style={{ fontWeight: 600, fontSize: '14px', color: 'white' }}>
+                                                                    {acc.displayName}
+                                                                </div>
+                                                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                                                    {acc.email}
+                                                                </div>
+                                                            </div>
+                                                            {isCurrent && (
+                                                                <div style={{
+                                                                    fontSize: '11px',
+                                                                    fontWeight: 700,
+                                                                    color: 'var(--accent)',
+                                                                    backgroundColor: 'var(--accent-dim)',
+                                                                    padding: '4px 8px',
+                                                                    borderRadius: '6px'
+                                                                }}>
+                                                                    CURRENT
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+
+                                                <button
+                                                    onClick={handleSignOut}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '8px',
+                                                        padding: '12px',
+                                                        backgroundColor: 'transparent',
+                                                        border: '1px dashed var(--text-muted)',
+                                                        borderRadius: '12px',
+                                                        color: 'var(--text-muted)',
+                                                        cursor: 'pointer',
+                                                        fontSize: '14px',
+                                                        fontWeight: 600,
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                    onMouseEnter={(e) => {
+                                                        e.currentTarget.style.borderColor = 'var(--accent)';
+                                                        e.currentTarget.style.color = 'var(--accent)';
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        e.currentTarget.style.borderColor = 'var(--text-muted)';
+                                                        e.currentTarget.style.color = 'var(--text-muted)';
+                                                    }}
+                                                >
+                                                    <Plus size={18} />
+                                                    Add Another Account
+                                                </button>
+                                            </div>
                                         </motion.div>
                                     )}
 

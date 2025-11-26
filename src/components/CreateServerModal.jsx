@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Check } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, setDoc, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 
 export default function CreateServerModal({ isOpen, onClose }) {
@@ -16,17 +16,45 @@ export default function CreateServerModal({ isOpen, onClose }) {
 
         setLoading(true);
         try {
-            await addDoc(collection(db, "servers"), {
+            // 1. Create Server Doc
+            const serverRef = await addDoc(collection(db, "servers"), {
                 name: serverName,
                 ownerId: currentUser.uid,
                 createdAt: serverTimestamp(),
-                icon: null, // TODO: Add image upload
+                icon: null,
+                inviteCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
                 channels: [
                     { name: 'general', type: 'text' },
                     { name: 'announcements', type: 'text' },
                     { name: 'lounge', type: 'voice' }
+                ],
+                roles: [
+                    {
+                        id: 'admin',
+                        name: 'Admin',
+                        color: '#ff0000',
+                        permissions: ['ADMIN', 'MANAGE_SERVER', 'MANAGE_ROLES', 'MANAGE_CHANNELS', 'KICK_MEMBERS', 'BAN_MEMBERS']
+                    },
+                    {
+                        id: 'member',
+                        name: 'Member',
+                        color: '#99aab5',
+                        permissions: []
+                    }
                 ]
             });
+
+            // 2. Add Owner as Member
+            await setDoc(doc(db, "servers", serverRef.id, "members", currentUser.uid), {
+                joinedAt: serverTimestamp(),
+                roles: ['admin']
+            });
+
+            // 3. Add to User's joinedServers
+            await updateDoc(doc(db, "users", currentUser.uid), {
+                joinedServers: arrayUnion(serverRef.id)
+            });
+
             onClose();
             setServerName('');
         } catch (error) {
