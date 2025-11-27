@@ -18,15 +18,17 @@ function PrivateRoute({ children }) {
 
 import MobileLayout from './components/MobileLayout';
 
+import { PeerProvider, usePeer } from './context/PeerContext';
+
 function Home() {
   const [activeServerId, setActiveServerId] = useState('home');
   const [activeChannelId, setActiveChannelId] = useState(null);
   const [activeChannelName, setActiveChannelName] = useState('general');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null); // { id, isCaller: false }
   const [activeDmUser, setActiveDmUser] = useState(null);
   const { currentUser } = useAuth();
+  const { incomingCall, setIncomingCall } = usePeer(); // Use PeerContext
 
   useEffect(() => {
     const handleResize = () => {
@@ -36,36 +38,6 @@ function Home() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
-  // Listen for incoming calls
-  useEffect(() => {
-    if (!currentUser) return;
-
-    // Query for calls where receiver.uid is current user and status is 'offering'
-    // Note: In a real app, we might need a composite index or a better structure.
-    // For now, let's just listen to "calls" and filter client side if needed, or use a simple query.
-    // Ideally: where("receiver.uid", "==", currentUser.uid), where("status", "==", "offering")
-
-    // Since we don't have the index yet, let's try to just listen to recent calls and filter.
-    // Or better, let's just rely on the fact that we can query by receiver.uid if we index it.
-    // Let's assume we can query.
-
-    const q = query(
-      collection(db, "calls"),
-      where("receiver.uid", "==", currentUser.uid),
-      where("status", "==", "offering")
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added") {
-          setIncomingCall({ id: change.doc.id, isCaller: false });
-        }
-      });
-    });
-
-    return () => unsubscribe();
-  }, [currentUser]);
 
   if (isMobile) {
     return <MobileLayout />;
@@ -170,7 +142,7 @@ function Home() {
       {/* Incoming Call Modal */}
       {incomingCall && (
         <CallModal
-          callId={incomingCall.id}
+          call={incomingCall} // Pass the PeerJS call object
           currentUser={currentUser}
           isCaller={false}
           onClose={() => setIncomingCall(null)}
@@ -183,16 +155,18 @@ function Home() {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={
-            <PrivateRoute>
-              <Home />
-            </PrivateRoute>
-          } />
-        </Routes>
-      </Router>
+      <PeerProvider>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={
+              <PrivateRoute>
+                <Home />
+              </PrivateRoute>
+            } />
+          </Routes>
+        </Router>
+      </PeerProvider>
     </AuthProvider>
   );
 }

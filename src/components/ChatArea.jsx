@@ -720,27 +720,9 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         }
     };
 
-    const startCall = async () => {
-        if (!activeChannelId) return;
-
-        // Create call document
-        const callDoc = await addDoc(collection(db, "calls"), {
-            channelId: activeChannelId,
-            caller: {
-                uid: currentUser.uid,
-                displayName: currentUser.displayName,
-                photoURL: currentUser.photoURL
-            },
-            receiver: {
-                uid: activeDmUser?.uid || 'unknown',
-                displayName: activeDmUser?.displayName || 'Unknown User',
-                photoURL: activeDmUser?.photoURL || null
-            },
-            status: 'offering',
-            createdAt: serverTimestamp()
-        });
-
-        setActiveCall({ id: callDoc.id, isCaller: true });
+    const startCall = () => {
+        if (!activeDmUser) return;
+        setActiveCall({ isCaller: true, remoteUserId: activeDmUser.uid });
     };
 
     if (!activeChannelId) {
@@ -872,9 +854,9 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
             {/* Call Modal */}
             {activeCall && (
                 <CallModal
-                    callId={activeCall.id}
                     currentUser={currentUser}
                     isCaller={activeCall.isCaller}
+                    remoteUserId={activeCall.remoteUserId}
                     onClose={() => setActiveCall(null)}
                 />
             )}

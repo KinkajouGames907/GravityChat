@@ -1,26 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, X, Minimize2, Maximize2 } from 'lucide-react';
-import SimplePeer from 'simple-peer';
-import { db } from '../lib/firebase';
-import { doc, onSnapshot, updateDoc, addDoc, collection, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
+import { motion } from 'framer-motion';
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Minimize2, Maximize2 } from 'lucide-react';
+import { usePeer } from '../context/PeerContext';
 
-export default function CallModal({ callId, currentUser, isCaller, onClose }) {
-    const [callStatus, setCallStatus] = useState('initializing'); // initializing, calling, connected, ended
+export default function CallModal({ call, currentUser, isCaller, onClose, remoteUserId }) {
+    const [callStatus, setCallStatus] = useState('initializing'); // initializing, calling, incoming, connected, ended
     const [stream, setStream] = useState(null);
     const [remoteStream, setRemoteStream] = useState(null);
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOff, setIsVideoOff] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
-    const [remoteUser, setRemoteUser] = useState(null);
 
+    const { callUser, answerCall, endCall: endPeerCall } = usePeer();
     const myVideo = useRef();
     const userVideo = useRef();
-    const connectionRef = useRef();
-    const callDocRef = useRef(doc(db, "calls", callId));
 
     useEffect(() => {
+        let currentCall = call;
+
         // Get user media
         navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then((currentStream) => {
@@ -29,71 +27,31 @@ export default function CallModal({ callId, currentUser, isCaller, onClose }) {
                     myVideo.current.srcObject = currentStream;
                 }
 
-                // Initialize Peer
-                const peer = new SimplePeer({
-                    initiator: isCaller,
-                    trickle: false,
-                    stream: currentStream
-                });
-
-                // Handle Signals
-                peer.on('signal', (data) => {
-                    if (isCaller) {
-                        updateDoc(callDocRef.current, { offer: JSON.stringify(data) });
-                    } else {
-                        updateDoc(callDocRef.current, { answer: JSON.stringify(data) });
-                    }
-                });
-
-                peer.on('stream', (currentRemoteStream) => {
-                    setRemoteStream(currentRemoteStream);
-                    if (userVideo.current) {
-                        userVideo.current.srcObject = currentRemoteStream;
-                    }
-                });
-
-                peer.on('close', () => {
-                    endCall();
-                });
-
-                peer.on('error', (err) => {
-                    console.error("Peer error:", err);
-                    endCall();
-                });
-
-                connectionRef.current = peer;
-
-                // Listen to Firestore for signaling
-                const unsubscribe = onSnapshot(callDocRef.current, (snapshot) => {
-                    const data = snapshot.data();
-                    if (!data) {
-                        // Call ended remotely
-                        endCall();
-                        return;
-                    }
-
-                    if (isCaller) {
-                        setRemoteUser(data.receiver);
-                        if (data.answer && !peer.connected) {
-                            peer.signal(JSON.parse(data.answer));
+                if (isCaller) {
+                    // Initiate call
+                    setCallStatus('calling');
+                    currentCall = callUser(remoteUserId, currentStream);
+                    if (currentCall) {
+                        currentCall.on('stream', (remoteStream) => {
+                            setRemoteStream(remoteStream);
                             setCallStatus('connected');
-                        }
+                            if (userVideo.current) {
+                                userVideo.current.srcObject = remoteStream;
+                            }
+                        });
+                        currentCall.on('close', () => handleEndCall());
+                        currentCall.on('error', (e) => {
+                            console.error("Call error:", e);
+                            handleEndCall();
+                        });
                     } else {
-                        setRemoteUser(data.caller);
-                        if (data.offer && !peer.connected && callStatus === 'initializing') {
-                            peer.signal(JSON.parse(data.offer));
-                            setCallStatus('connected');
-                        }
+                        alert("Failed to start call. Peer not ready.");
+                        onClose();
                     }
-
-                    if (data.status === 'ended') {
-                        endCall();
-                    }
-                });
-
-                return () => {
-                    unsubscribe();
-                };
+                } else {
+                    // Incoming call - wait for user action
+                    setCallStatus('incoming');
+                }
             })
             .catch((err) => {
                 console.error("Error accessing media devices:", err);
@@ -106,11 +64,26 @@ export default function CallModal({ callId, currentUser, isCaller, onClose }) {
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
             }
-            if (connectionRef.current) {
-                connectionRef.current.destroy();
-            }
         };
     }, []);
+
+    const handleAcceptCall = () => {
+        if (!call || !stream) return;
+
+        setCallStatus('connected');
+        call.answer(stream);
+        call.on('stream', (remoteStream) => {
+            setRemoteStream(remoteStream);
+            if (userVideo.current) {
+                userVideo.current.srcObject = remoteStream;
+            }
+        });
+        call.on('close', () => handleEndCall());
+        call.on('error', (e) => {
+            console.error("Call error:", e);
+            handleEndCall();
+        });
+    };
 
     const toggleMute = () => {
         if (stream) {
@@ -126,22 +99,12 @@ export default function CallModal({ callId, currentUser, isCaller, onClose }) {
         }
     };
 
-    const endCall = async () => {
+    const handleEndCall = () => {
         setCallStatus('ended');
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
         }
-        if (connectionRef.current) {
-            connectionRef.current.destroy();
-        }
-
-        try {
-            await updateDoc(callDocRef.current, { status: 'ended' });
-            // Optional: delete doc after delay
-        } catch (e) {
-            // Document might already be deleted
-        }
-
+        endPeerCall();
         setTimeout(() => {
             onClose();
         }, 1000);
@@ -172,10 +135,10 @@ export default function CallModal({ callId, currentUser, isCaller, onClose }) {
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
                         <div style={{
                             width: '40px', height: '40px', borderRadius: '50%',
-                            backgroundImage: `url(${remoteUser?.photoURL})`, backgroundSize: 'cover',
+                            backgroundColor: 'var(--bg-tertiary)',
                             marginBottom: '8px'
                         }} />
-                        <span style={{ fontSize: '12px' }}>{callStatus === 'connected' ? 'Connected' : 'Calling...'}</span>
+                        <span style={{ fontSize: '12px' }}>{callStatus === 'connected' ? 'Connected' : (callStatus === 'incoming' ? 'Incoming Call...' : 'Calling...')}</span>
                     </div>
                 )}
                 <button
@@ -221,15 +184,16 @@ export default function CallModal({ callId, currentUser, isCaller, onClose }) {
                             width: '120px',
                             height: '120px',
                             borderRadius: '50%',
-                            backgroundImage: `url(${remoteUser?.photoURL})`,
-                            backgroundSize: 'cover',
                             backgroundColor: 'var(--bg-tertiary)',
                             boxShadow: '0 0 40px var(--accent-glow)'
                         }} />
                         <h2 style={{ fontSize: '24px', fontWeight: 700 }}>
-                            {callStatus === 'initializing' ? 'Calling...' : 'Connecting...'}
+                            {callStatus === 'initializing' && 'Initializing...'}
+                            {callStatus === 'calling' && 'Calling...'}
+                            {callStatus === 'incoming' && 'Incoming Call...'}
+                            {callStatus === 'connected' && 'Connecting...'}
+                            {callStatus === 'ended' && 'Call Ended'}
                         </h2>
-                        <p style={{ color: 'var(--text-muted)' }}>{remoteUser?.displayName}</p>
                     </div>
                 )}
 
@@ -267,38 +231,65 @@ export default function CallModal({ callId, currentUser, isCaller, onClose }) {
                     borderRadius: '40px',
                     border: '1px solid var(--glass-border)'
                 }}>
-                    <button
-                        onClick={toggleMute}
-                        className="icon-btn"
-                        style={{
-                            backgroundColor: isMuted ? 'var(--error)' : 'var(--bg-tertiary)',
-                            width: '50px', height: '50px', borderRadius: '50%'
-                        }}
-                    >
-                        {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
-                    </button>
+                    {callStatus === 'incoming' ? (
+                        <>
+                            <button
+                                onClick={handleAcceptCall}
+                                className="icon-btn"
+                                style={{
+                                    backgroundColor: 'var(--success)',
+                                    width: '60px', height: '60px', borderRadius: '50%'
+                                }}
+                            >
+                                <Phone size={28} />
+                            </button>
+                            <button
+                                onClick={handleEndCall}
+                                className="icon-btn"
+                                style={{
+                                    backgroundColor: 'var(--error)',
+                                    width: '60px', height: '60px', borderRadius: '50%'
+                                }}
+                            >
+                                <PhoneOff size={28} />
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <button
+                                onClick={toggleMute}
+                                className="icon-btn"
+                                style={{
+                                    backgroundColor: isMuted ? 'var(--error)' : 'var(--bg-tertiary)',
+                                    width: '50px', height: '50px', borderRadius: '50%'
+                                }}
+                            >
+                                {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+                            </button>
 
-                    <button
-                        onClick={endCall}
-                        className="icon-btn"
-                        style={{
-                            backgroundColor: 'var(--error)',
-                            width: '60px', height: '60px', borderRadius: '50%'
-                        }}
-                    >
-                        <PhoneOff size={28} />
-                    </button>
+                            <button
+                                onClick={handleEndCall}
+                                className="icon-btn"
+                                style={{
+                                    backgroundColor: 'var(--error)',
+                                    width: '60px', height: '60px', borderRadius: '50%'
+                                }}
+                            >
+                                <PhoneOff size={28} />
+                            </button>
 
-                    <button
-                        onClick={toggleVideo}
-                        className="icon-btn"
-                        style={{
-                            backgroundColor: isVideoOff ? 'var(--error)' : 'var(--bg-tertiary)',
-                            width: '50px', height: '50px', borderRadius: '50%'
-                        }}
-                    >
-                        {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
-                    </button>
+                            <button
+                                onClick={toggleVideo}
+                                className="icon-btn"
+                                style={{
+                                    backgroundColor: isVideoOff ? 'var(--error)' : 'var(--bg-tertiary)',
+                                    width: '50px', height: '50px', borderRadius: '50%'
+                                }}
+                            >
+                                {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+                            </button>
+                        </>
+                    )}
                 </div>
 
                 {/* Top Controls */}
