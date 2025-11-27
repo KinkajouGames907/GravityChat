@@ -223,14 +223,14 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
                             flexDirection: isMobile ? 'row' : 'column',
                             border: '1px solid var(--glass-border)',
                             transition: 'transform 0.2s',
-                            cursor: 'pointer',
-                            minHeight: isMobile ? '80px' : 'auto'
+                            minHeight: isMobile ? '100px' : '280px', // Enforce height
+                            position: 'relative'
                         }}
                             className="hover:scale-[1.02]"
                         >
                             <div style={{
-                                height: isMobile ? 'auto' : '100px',
-                                width: isMobile ? '80px' : '100%',
+                                height: isMobile ? '100%' : '120px',
+                                width: isMobile ? '100px' : '100%',
                                 backgroundColor: 'var(--accent)',
                                 backgroundImage: server.icon ? `url(${server.icon})` : 'linear-gradient(45deg, var(--accent), #8b5cf6)',
                                 backgroundSize: 'cover',
@@ -239,39 +239,45 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
                             }} />
 
                             <div style={{
-                                padding: isMobile ? '12px' : '16px',
+                                padding: '16px',
                                 flex: 1,
                                 display: 'flex',
                                 flexDirection: 'column',
-                                justifyContent: isMobile ? 'center' : 'flex-start'
+                                justifyContent: 'space-between' // Push button to bottom
                             }}>
-                                <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>{server.name}</h3>
-                                <div style={{
-                                    fontSize: '12px',
-                                    color: 'var(--text-muted)',
-                                    marginBottom: isMobile ? '8px' : '16px',
-                                    flex: 1,
-                                    display: isMobile ? '-webkit-box' : 'block',
-                                    WebkitLineClamp: isMobile ? 2 : 'none',
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden'
-                                }}>
-                                    {server.description || "A community server."}
+                                <div>
+                                    <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>{server.name}</h3>
+                                    <div style={{
+                                        fontSize: '13px',
+                                        color: 'var(--text-muted)',
+                                        marginBottom: '16px',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: isMobile ? 2 : 3,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {server.description || "A community server."}
+                                    </div>
                                 </div>
 
                                 <button
-                                    onClick={() => handleJoin(server)}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleJoin(server);
+                                    }}
                                     className="glossy-button"
                                     style={{
-                                        width: isMobile ? 'auto' : '100%',
+                                        width: '100%',
                                         justifyContent: 'center',
-                                        alignSelf: isMobile ? 'flex-start' : 'auto',
-                                        padding: isMobile ? '6px 12px' : '8px 16px',
-                                        fontSize: isMobile ? '13px' : '14px'
+                                        padding: '10px 16px',
+                                        fontSize: '14px',
+                                        marginTop: 'auto',
+                                        backgroundColor: 'var(--accent)',
+                                        cursor: 'pointer'
                                     }}
                                     disabled={loading}
                                 >
-                                    Join
+                                    Join Server
                                 </button>
                             </div>
                         </div>
