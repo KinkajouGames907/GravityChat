@@ -1,452 +1,33 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import notificationSound from '../assets/sounds/notification.mp3';
 import { createPortal } from 'react-dom';
-import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, Trash2, MoreHorizontal, Mic, X, Image as ImageIcon, FileText, Download, Flag, Phone, Video } from 'lucide-react';
+import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, X, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, where, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import MemberList from './MemberList';
 import EmojiPicker from './EmojiPicker';
 import GifPicker from './GifPicker';
 import FileUpload from './FileUpload';
+import MemberList from './MemberList';
+import Message from './Message';
 import CallModal from './CallModal';
-import { isSuperAdmin } from '../utils/permissions';
-
-import userAvatar from '../assets/user_avatar.png';
-
-// Emoji reactions list
-const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👎', '🎉'];
-
-const Message = ({
-    message,
-    isOwn,
-    isMobile,
-    onReaction,
-    onEdit,
-    onDelete,
-    currentUser,
-    showActions,
-    onReport
-}) => {
-    const [showMenu, setShowMenu] = useState(false);
-    const [showReactions, setShowReactions] = useState(false);
-    const menuRef = useRef(null);
-
-    // Close menu when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (e) => {
-            if (menuRef.current && !menuRef.current.contains(e.target)) {
-                setShowMenu(false);
-                setShowReactions(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const formatTime = (timestamp) => {
-        if (!timestamp?.toDate) return 'Sending...';
-        return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    };
-
-    const renderMessageContent = () => {
-        // Check if message is an image/GIF
-        if (message.attachment?.isImage) {
-            return (
-                <div style={{ marginTop: '8px' }}>
-                    <img
-                        src={message.attachment.data}
-                        alt={message.attachment.name}
-                        style={{
-                            maxWidth: isMobile ? '200px' : '400px',
-                            maxHeight: '300px',
-                            borderRadius: '8px',
-                            cursor: 'pointer'
-                        }}
-                        onClick={() => window.open(message.attachment.data, '_blank')}
-                    />
-                </div>
-            );
-        }
-
-        // Check if message is a GIF URL
-        if (message.gifUrl) {
-            return (
-                <div style={{ marginTop: '8px' }}>
-                    <img
-                        src={message.gifUrl}
-                        alt="GIF"
-                        style={{
-                            maxWidth: isMobile ? '200px' : '300px',
-                            borderRadius: '8px'
-                        }}
-                    />
-                </div>
-            );
-        }
-
-        // Check if message is a text file
-        if (message.attachment && !message.attachment.isImage) {
-            return (
-                <div style={{
-                    marginTop: '8px',
-                    padding: '12px',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                }}>
-                    <FileText size={24} color="var(--accent)" />
-                    <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: '14px' }}>{message.attachment.name}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            {(message.attachment.size / 1024).toFixed(1)} KB
-                        </div>
-                    </div>
-                    <a
-                        href={message.attachment.data}
-                        download={message.attachment.name}
-                        style={{ color: 'var(--accent)' }}
-                    >
-                        <Download size={20} />
-                    </a>
-                </div>
-            );
-        }
-
-        // Regular text message
-        if (message.text) {
-            return (
-                <p style={{
-                    margin: '2px 0 0',
-                    fontSize: isMobile ? '14px' : '16px',
-                    color: 'var(--text-primary)',
-                    lineHeight: '1.4',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word'
-                }}>
-                    {message.text}
-                    {message.edited && (
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>
-                            (edited)
-                        </span>
-                    )}
-                </p>
-            );
-        }
-
-        return null;
-    };
-
-    const reactions = message.reactions || {};
-    const hasReactions = Object.keys(reactions).length > 0;
-
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-            layout
-            style={{
-                display: 'flex',
-                gap: isMobile ? '10px' : '16px',
-                padding: isMobile ? '8px 12px' : '10px 16px',
-                marginTop: '4px',
-                backgroundColor: isOwn ? 'rgba(29, 155, 240, 0.05)' : 'transparent',
-                borderLeft: isOwn ? '3px solid var(--accent)' : '3px solid transparent',
-                borderRadius: '0 8px 8px 0',
-                position: 'relative',
-                transition: 'background-color 0.15s'
-            }}
-            onMouseEnter={() => showActions && setShowMenu(true)}
-            onMouseLeave={() => { setShowMenu(false); setShowReactions(false); }}
-        >
-            {/* Avatar */}
-            <div style={{
-                width: isMobile ? '32px' : '40px',
-                height: isMobile ? '32px' : '40px',
-                borderRadius: '50%',
-                backgroundColor: message.photoURL ? 'transparent' : 'var(--bg-tertiary)',
-                backgroundImage: `url(${message.photoURL || userAvatar})`,
-                backgroundSize: 'cover',
-                flexShrink: 0
-            }} />
-
-            {/* Content */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                    <span style={{
-                        fontWeight: 600,
-                        fontSize: isMobile ? '14px' : '15px',
-                        color: isOwn ? 'var(--accent)' : 'var(--text-primary)'
-                    }}>
-                        {message.displayName}
-                    </span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {formatTime(message.createdAt)}
-                    </span>
-                </div>
-
-                {renderMessageContent()}
-
-                {/* Reactions Display */}
-                {hasReactions && (
-                    <div style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '4px',
-                        marginTop: '8px'
-                    }}>
-                        {Object.entries(reactions).map(([emoji, users]) => (
-                            <motion.button
-                                key={emoji}
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={() => onReaction(message.id, emoji)}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                    padding: '4px 8px',
-                                    backgroundColor: users.includes(currentUser?.uid)
-                                        ? 'var(--accent-dim)'
-                                        : 'var(--bg-tertiary)',
-                                    border: users.includes(currentUser?.uid)
-                                        ? '1px solid var(--accent)'
-                                        : '1px solid transparent',
-                                    borderRadius: '12px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px'
-                                }}
-                            >
-                                <span>{emoji}</span>
-                                <span style={{
-                                    fontSize: '12px',
-                                    color: 'var(--text-secondary)',
-                                    fontWeight: 600
-                                }}>
-                                    {users.length}
-                                </span>
-                            </motion.button>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            {/* Action Buttons (on hover) */}
-            <AnimatePresence>
-                {showMenu && !isMobile && (
-                    <motion.div
-                        ref={menuRef}
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        style={{
-                            position: 'absolute',
-                            top: '-16px',
-                            right: '16px',
-                            display: 'flex',
-                            gap: '2px',
-                            padding: '4px',
-                            backgroundColor: 'var(--bg-secondary)',
-                            border: '1px solid var(--glass-border)',
-                            borderRadius: '8px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                            zIndex: 10
-                        }}
-                    >
-                        {/* Emoji Reaction Button */}
-                        <button
-                            onClick={() => setShowReactions(!showReactions)}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                padding: '6px 8px',
-                                cursor: 'pointer',
-                                borderRadius: '4px',
-                                color: 'var(--text-secondary)',
-                                display: 'flex',
-                                alignItems: 'center'
-                            }}
-                            title="Add reaction"
-                        >
-                            <Smile size={18} />
-                        </button>
-
-                        {/* Edit Button (own messages only) */}
-                        {isOwn && message.text && (
-                            <button
-                                onClick={() => onEdit(message)}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    padding: '6px 8px',
-                                    cursor: 'pointer',
-                                    borderRadius: '4px',
-                                    color: 'var(--text-secondary)',
-                                    display: 'flex',
-                                    alignItems: 'center'
-                                }}
-                                title="Edit message"
-                            >
-                                <Edit3 size={18} />
-                            </button>
-                        )}
-
-                        {/* Delete Button (own messages or Super Admin) */}
-                        {(isOwn || isSuperAdmin(currentUser)) && (
-                            <button
-                                onClick={() => onDelete(message.id)}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    padding: '6px 8px',
-                                    cursor: 'pointer',
-                                    borderRadius: '4px',
-                                    color: 'var(--danger)',
-                                    display: 'flex',
-                                    alignItems: 'center'
-                                }}
-                                title="Delete message"
-                            >
-                                <Trash2 size={18} />
-                            </button>
-                        )}
-
-                        {/* Report Button (others' messages) */}
-                        {!isOwn && (
-                            <button
-                                onClick={() => {
-                                    onReport(message);
-                                    setShowMenu(false);
-                                }}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    padding: '6px 8px',
-                                    cursor: 'pointer',
-                                    borderRadius: '4px',
-                                    color: 'var(--warning)',
-                                    display: 'flex',
-                                    alignItems: 'center'
-                                }}
-                                title="Report message"
-                            >
-                                <Flag size={18} />
-                            </button>
-                        )}
-
-                        {/* Quick Reactions Popup */}
-                        <AnimatePresence>
-                            {showReactions && (
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.9 }}
-                                    style={{
-                                        position: 'absolute',
-                                        top: '100%',
-                                        right: 0,
-                                        marginTop: '4px',
-                                        display: 'flex',
-                                        gap: '4px',
-                                        padding: '8px',
-                                        backgroundColor: 'var(--bg-secondary)',
-                                        border: '1px solid var(--glass-border)',
-                                        borderRadius: '24px',
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                                    }}
-                                >
-                                    {QUICK_REACTIONS.map(emoji => (
-                                        <motion.button
-                                            key={emoji}
-                                            whileHover={{ scale: 1.2 }}
-                                            whileTap={{ scale: 0.9 }}
-                                            onClick={() => {
-                                                onReaction(message.id, emoji);
-                                                setShowReactions(false);
-                                            }}
-                                            style={{
-                                                background: 'transparent',
-                                                border: 'none',
-                                                fontSize: '20px',
-                                                cursor: 'pointer',
-                                                padding: '4px'
-                                            }}
-                                        >
-                                            {emoji}
-                                        </motion.button>
-                                    ))}
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </motion.div>
-    );
-};
-
-// Typing Indicator Component
-const TypingIndicator = ({ typingUsers }) => {
-    if (typingUsers.length === 0) return null;
-
-    const text = typingUsers.length === 1
-        ? `${typingUsers[0]} is typing...`
-        : typingUsers.length === 2
-            ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
-            : `${typingUsers[0]} and ${typingUsers.length - 1} others are typing...`;
-
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            style={{
-                padding: '8px 16px',
-                fontSize: '13px',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-            }}
-        >
-            <div style={{ display: 'flex', gap: '3px' }}>
-                {[0, 1, 2].map(i => (
-                    <motion.div
-                        key={i}
-                        animate={{ y: [0, -4, 0] }}
-                        transition={{
-                            duration: 0.6,
-                            repeat: Infinity,
-                            delay: i * 0.1
-                        }}
-                        style={{
-                            width: '6px',
-                            height: '6px',
-                            borderRadius: '50%',
-                            backgroundColor: 'var(--text-muted)'
-                        }}
-                    />
-                ))}
-            </div>
-            {text}
-        </motion.div>
-    );
-};
+import UserProfileModal from './UserProfileModal';
 
 export default function ChatArea({ activeChannelId, activeChannelName, activeServerId, isMobile, onOpenMenu, activeDmUser }) {
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
-    const [showMemberList, setShowMemberList] = useState(!isMobile);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [showGifPicker, setShowGifPicker] = useState(false);
     const [showFileUpload, setShowFileUpload] = useState(false);
     const [editingMessage, setEditingMessage] = useState(null);
     const [typingUsers, setTypingUsers] = useState([]);
-    const [isRecording, setIsRecording] = useState(false);
-    const [activeCall, setActiveCall] = useState(null); // { id, isCaller }
+    const [showMemberList, setShowMemberList] = useState(false);
+    const [activeCall, setActiveCall] = useState(null);
+    // activeDmUser is now passed as a prop
+    const [selectedUserProfile, setSelectedUserProfile] = useState(null);
+    const [enlargedImage, setEnlargedImage] = useState(null);
+
     const { currentUser } = useAuth();
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -484,23 +65,34 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 });
 
             setMessages(msgs);
-            // scrollToBottom is now handled by useEffect
 
             // Notification Logic
             snapshot.docChanges().forEach((change) => {
                 if (change.type === "added") {
                     const msg = change.doc.data();
-                    const isRecent = msg.createdAt && (new Date() - msg.createdAt.toDate()) < 10000;
+                    // Relaxed check: 30 seconds. If createdAt is null (local write), treat as recent.
+                    const msgTime = msg.createdAt ? msg.createdAt.toDate() : new Date();
+                    const isRecent = (new Date() - msgTime) < 30000;
 
-                    if (msg.uid !== currentUser.uid && document.hidden && isRecent) {
-                        if ('Notification' in window && Notification.permission === 'granted') {
-                            try {
-                                new Notification(`New message in #${activeChannelName}`, {
-                                    body: `${msg.displayName}: ${msg.text || 'Sent an attachment'}`,
-                                    icon: '/favicon.ico'
-                                });
-                            } catch (e) {
-                                console.error("Notification failed:", e);
+                    if (msg.uid !== currentUser.uid && isRecent) {
+                        // Play sound for all new messages from others
+                        try {
+                            const audio = new Audio(notificationSound);
+                            audio.play().catch(e => console.log("Audio play failed:", e));
+                        } catch (e) {
+                            console.error("Audio playback error:", e);
+                        }
+
+                        if (document.hidden) {
+                            if ('Notification' in window && Notification.permission === 'granted') {
+                                try {
+                                    new Notification(`New message in #${activeChannelName}`, {
+                                        body: `${msg.displayName}: ${msg.text || 'Sent an attachment'}`,
+                                        icon: '/favicon.ico'
+                                    });
+                                } catch (e) {
+                                    console.error("Notification failed:", e);
+                                }
                             }
                         }
                     }
@@ -580,6 +172,31 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         }, 2000);
     };
 
+    const handlePaste = async (e) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        for (const item of items) {
+            if (item.type.indexOf('image') !== -1) {
+                const file = item.getAsFile();
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        handleFileSelect({
+                            name: "pasted-image.png",
+                            type: file.type,
+                            size: file.size,
+                            data: event.target.result,
+                            isImage: true,
+                            isGif: false
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+    };
+
     const handleSendMessage = async (e) => {
         e?.preventDefault();
         if ((!newMessage.trim() && !editingMessage) || !activeChannelId) return;
@@ -654,30 +271,6 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         });
 
         setShowFileUpload(false);
-    };
-
-    const handleReaction = async (messageId, emoji) => {
-        const messageRef = doc(db, "messages", messageId);
-        const message = messages.find(m => m.id === messageId);
-        if (!message) return;
-
-        const reactions = message.reactions || {};
-        const users = reactions[emoji] || [];
-
-        if (users.includes(currentUser.uid)) {
-            // Remove reaction
-            const newUsers = users.filter(id => id !== currentUser.uid);
-            if (newUsers.length === 0) {
-                delete reactions[emoji];
-            } else {
-                reactions[emoji] = newUsers;
-            }
-        } else {
-            // Add reaction
-            reactions[emoji] = [...users, currentUser.uid];
-        }
-
-        await updateDoc(messageRef, { reactions });
     };
 
     const handleEditMessage = (message) => {
@@ -770,7 +363,8 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 flexShrink: 0,
                 backgroundColor: 'var(--bg-secondary)',
-                backdropFilter: 'blur(10px)'
+                backdropFilter: 'blur(10px)',
+                zIndex: 20
             }}>
                 {isMobile && (
                     <Menu
@@ -890,21 +484,18 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                 <Message
                                     key={msg.id}
                                     message={msg}
-                                    isOwn={msg.uid === currentUser?.uid}
-                                    isMobile={isMobile}
                                     currentUser={currentUser}
-                                    onReaction={handleReaction}
-                                    onEdit={handleEditMessage}
+                                    onEdit={setEditingMessage}
                                     onDelete={handleDeleteMessage}
+                                    onReply={(msg) => setNewMessage(`Replying to: ${msg.text}\n`)}
                                     onReport={handleReport}
-                                    showActions={!isMobile}
+                                    onViewProfile={(uid, displayName, photoURL) => setSelectedUserProfile({ uid, displayName, photoURL })}
+                                    onImageClick={(url) => setEnlargedImage(url)}
                                 />
                             ))}
                         </AnimatePresence>
                         <div ref={messagesEndRef} />
                     </div>
-
-                    {/* Input Area */}
                     <div style={{
                         padding: isMobile ? '12px' : '16px',
                         paddingBottom: isMobile ? 'calc(12px + env(safe-area-inset-bottom, 0px))' : '20px',
@@ -972,12 +563,23 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                             </button>
 
                             {/* Text Input */}
-                            <input
+                            <textarea
                                 ref={inputRef}
-                                type="text"
                                 value={newMessage}
-                                onChange={handleInputChange}
+                                onChange={(e) => {
+                                    handleInputChange(e);
+                                    e.target.style.height = 'auto';
+                                    e.target.style.height = e.target.scrollHeight + 'px';
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSendMessage(e);
+                                    }
+                                }}
+                                onPaste={handlePaste}
                                 placeholder={editingMessage ? 'Edit your message...' : `Message #${activeChannelName}`}
+                                rows={1}
                                 style={{
                                     flex: 1,
                                     background: 'transparent',
@@ -985,7 +587,11 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     color: 'white',
                                     fontSize: isMobile ? '16px' : '15px',
                                     padding: '10px 8px',
-                                    outline: 'none'
+                                    outline: 'none',
+                                    resize: 'none',
+                                    maxHeight: '200px',
+                                    overflowY: 'auto',
+                                    fontFamily: 'inherit'
                                 }}
                             />
 
@@ -1146,6 +752,71 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 onClose={() => setShowFileUpload(false)}
                 onFileSelect={handleFileSelect}
             />
+
+            <UserProfileModal
+                isOpen={!!selectedUserProfile}
+                onClose={() => setSelectedUserProfile(null)}
+                user={selectedUserProfile}
+                isMobile={isMobile}
+            />
+
+            {/* Image Lightbox */}
+            <AnimatePresence>
+                {enlargedImage && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                            zIndex: 3000,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'zoom-out'
+                        }}
+                        onClick={() => setEnlargedImage(null)}
+                    >
+                        <motion.img
+                            initial={{ scale: 0.9 }}
+                            animate={{ scale: 1 }}
+                            exit={{ scale: 0.9 }}
+                            src={enlargedImage}
+                            alt="Enlarged"
+                            style={{
+                                maxWidth: '90vw',
+                                maxHeight: '90vh',
+                                objectFit: 'contain',
+                                borderRadius: '8px',
+                                boxShadow: '0 0 20px rgba(0,0,0,0.5)'
+                            }}
+                        />
+                        <button
+                            onClick={() => setEnlargedImage(null)}
+                            style={{
+                                position: 'absolute',
+                                top: '20px',
+                                right: '20px',
+                                background: 'rgba(255,255,255,0.1)',
+                                border: 'none',
+                                borderRadius: '50%',
+                                width: '40px',
+                                height: '40px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                cursor: 'pointer',
+                                backdropFilter: 'blur(4px)'
+                            }}
+                        >
+                            <X size={24} />
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

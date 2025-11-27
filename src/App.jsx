@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import ringtoneSound from './assets/sounds/ringtone.mp3';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
@@ -29,6 +30,20 @@ function Home() {
   const [activeDmUser, setActiveDmUser] = useState(null);
   const { currentUser } = useAuth();
   const { incomingCall, setIncomingCall } = usePeer(); // Use PeerContext
+  const ringtoneRef = useRef(new Audio(ringtoneSound));
+
+  useEffect(() => {
+    ringtoneRef.current.loop = true;
+  }, []);
+
+  useEffect(() => {
+    if (incomingCall) {
+      ringtoneRef.current.play().catch(e => console.log("Ringtone play failed:", e));
+    } else {
+      ringtoneRef.current.pause();
+      ringtoneRef.current.currentTime = 0;
+    }
+  }, [incomingCall]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -39,105 +54,113 @@ function Home() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  if (isMobile) {
-    return <MobileLayout />;
-  }
+  // if (isMobile) {
+  //   return <MobileLayout />;
+  // }
+  // Refactored to include CallModal on mobile
+
 
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
-      {/* Global Liquid Background */}
-      <motion.div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          background: 'linear-gradient(45deg, #0f0c29, #302b63, #24243e)',
-          backgroundSize: '400% 400%',
-          zIndex: -1,
-        }}
-        animate={{
-          backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
-        }}
-        transition={{
-          duration: 15,
-          ease: "easeInOut",
-          repeat: Infinity,
-        }}
-      />
+      {isMobile ? (
+        <MobileLayout />
+      ) : (
+        <>
+          {/* Global Liquid Background */}
+          <motion.div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              background: 'linear-gradient(45deg, #0f0c29, #302b63, #24243e)',
+              backgroundSize: '400% 400%',
+              zIndex: -1,
+            }}
+            animate={{
+              backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
+            }}
+            transition={{
+              duration: 15,
+              ease: "easeInOut",
+              repeat: Infinity,
+            }}
+          />
 
-      {/* Beta Label */}
-      <div style={{
-        position: 'absolute',
-        top: '8px',
-        right: '8px',
-        color: 'rgba(255, 255, 255, 0.2)',
-        fontSize: '10px',
-        fontWeight: 'bold',
-        pointerEvents: 'none',
-        zIndex: 1000,
-        fontFamily: 'monospace'
-      }}>
-        VERY EARLY ALPHA BUILD V0.0.2
-      </div>
+          {/* Beta Label */}
+          <div style={{
+            position: 'absolute',
+            top: '8px',
+            right: '8px',
+            color: 'rgba(255, 255, 255, 0.2)',
+            fontSize: '10px',
+            fontWeight: 'bold',
+            pointerEvents: 'none',
+            zIndex: 1000,
+            fontFamily: 'monospace'
+          }}>
+            VERY EARLY ALPHA BUILD V0.0.2
+          </div>
 
-      {/* Navigation (Sidebar + ChannelList) */}
-      <div style={{ display: 'flex', position: 'relative', zIndex: 100, height: '100%' }}>
-        <Sidebar
-          activeServerId={activeServerId}
-          setActiveServerId={setActiveServerId}
-        />
-        <ChannelList
-          activeServerId={activeServerId}
-          activeChannelId={activeChannelId}
-          setActiveChannelId={setActiveChannelId}
-          setActiveChannelName={setActiveChannelName}
-          setActiveDmUser={setActiveDmUser}
-        />
-      </div>
+          {/* Navigation (Sidebar + ChannelList) */}
+          <div style={{ display: 'flex', position: 'relative', zIndex: 100, height: '100%' }}>
+            <Sidebar
+              activeServerId={activeServerId}
+              setActiveServerId={setActiveServerId}
+            />
+            <ChannelList
+              activeServerId={activeServerId}
+              activeChannelId={activeChannelId}
+              setActiveChannelId={setActiveChannelId}
+              setActiveChannelName={setActiveChannelName}
+              setActiveDmUser={setActiveDmUser}
+            />
+          </div>
 
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <AnimatePresence mode="wait">
-          {activeChannelId === 'friends' ? (
-            <motion.div
-              key="friends"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              style={{ width: '100%', height: '100%' }}
-            >
-              <FriendList
-                onStartDM={(user) => {
-                  const sortedIds = [currentUser.uid, user.uid].sort();
-                  const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
-                  setActiveChannelId(dmId);
-                  setActiveChannelName(user.displayName);
-                  setActiveDmUser(user);
-                }}
-              />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="chat"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              style={{ width: '100%', height: '100%' }}
-            >
-              <ChatArea
-                activeChannelId={activeChannelId}
-                activeChannelName={activeChannelName}
-                activeServerId={activeServerId}
-                activeDmUser={activeDmUser}
-                isMobile={false}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            <AnimatePresence mode="wait">
+              {activeChannelId === 'friends' ? (
+                <motion.div
+                  key="friends"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  style={{ width: '100%', height: '100%' }}
+                >
+                  <FriendList
+                    onStartDM={(user) => {
+                      const sortedIds = [currentUser.uid, user.uid].sort();
+                      const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
+                      setActiveChannelId(dmId);
+                      setActiveChannelName(user.displayName);
+                      setActiveDmUser(user);
+                    }}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="chat"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  style={{ width: '100%', height: '100%' }}
+                >
+                  <ChatArea
+                    activeChannelId={activeChannelId}
+                    activeChannelName={activeChannelName}
+                    activeServerId={activeServerId}
+                    activeDmUser={activeDmUser}
+                    isMobile={false}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </>
+      )}
 
       {/* Incoming Call Modal */}
       {incomingCall && (

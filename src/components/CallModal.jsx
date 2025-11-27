@@ -85,7 +85,18 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             if (userVideo.current) userVideo.current.muted = false;
         }
 
+        // iOS AudioContext Resume Fix
+        const resumeAudio = () => {
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        };
+        document.addEventListener('click', resumeAudio);
+        document.addEventListener('touchstart', resumeAudio);
+
         return () => {
+            document.removeEventListener('click', resumeAudio);
+            document.removeEventListener('touchstart', resumeAudio);
             if (audioCtx) {
                 audioCtx.close();
             }
@@ -167,7 +178,17 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             })
             .catch((err) => {
                 console.error("Error accessing media devices:", err);
-                alert("Could not access camera/microphone.");
+                let errorMessage = "Could not access camera/microphone.";
+
+                if (!window.isSecureContext) {
+                    errorMessage = "iOS (iPhone/iPad) requires a secure HTTPS connection for calls. If testing locally, you must use localhost or setup HTTPS.";
+                } else if (err.name === 'NotAllowedError') {
+                    errorMessage = "Permission denied. Please allow camera/microphone access in your browser settings.";
+                } else if (err.name === 'NotFoundError') {
+                    errorMessage = "No camera or microphone found.";
+                }
+
+                alert(errorMessage);
                 onClose();
             });
 
@@ -344,7 +365,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             position: 'fixed',
             inset: 0,
             backgroundColor: 'rgba(0,0,0,0.9)',
-            zIndex: 2000,
+            zIndex: 9999,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',

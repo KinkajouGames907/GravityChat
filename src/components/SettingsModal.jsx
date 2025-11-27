@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { updateProfile, deleteUser, signOut } from 'firebase/auth';
 import { auth } from '../lib/firebase';
-import { doc, setDoc, deleteDoc, getFirestore } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, getFirestore, getDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import userAvatar from '../assets/user_avatar.png';
 
@@ -26,6 +26,10 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
     const [activeTab, setActiveTab] = useState(isOpen ? (initialTab || 'account') : 'account');
     const [displayName, setDisplayName] = useState('');
     const [photoURL, setPhotoURL] = useState('');
+    const [username, setUsername] = useState('');
+    const [currentUsername, setCurrentUsername] = useState('');
+    const [bio, setBio] = useState('');
+    const [bannerURL, setBannerURL] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState(null);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -41,6 +45,10 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
         if (currentUser) {
             setDisplayName(currentUser.displayName || '');
             setPhotoURL(currentUser.photoURL || '');
+            setUsername(currentUser.username || '');
+            setCurrentUsername(currentUser.username || '');
+            setBio(currentUser.bio || '');
+            setBannerURL(currentUser.bannerURL || '');
         }
     }, [currentUser, isOpen]);
 
@@ -75,20 +83,45 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
         setMessage(null);
 
         try {
+            const db = getFirestore();
+
+            // Username Uniqueness Check
+            if (username !== currentUsername) {
+                const usernameRef = doc(db, "usernames", username.toLowerCase());
+                const usernameSnap = await getDoc(usernameRef);
+
+                if (usernameSnap.exists()) {
+                    setMessage({ type: 'error', text: 'Username is already taken' });
+                    setIsLoading(false);
+                    return;
+                }
+
+                // Reserve new username
+                await setDoc(usernameRef, { uid: user.uid });
+
+                // Release old username if it existed
+                if (currentUsername) {
+                    await deleteDoc(doc(db, "usernames", currentUsername.toLowerCase()));
+                }
+            }
+
             await updateProfile(user, {
                 displayName: displayName,
                 photoURL: photoURL
             });
 
             // Update Firestore user document
-            const db = getFirestore();
             await setDoc(doc(db, 'users', user.uid), {
                 displayName: displayName,
                 photoURL: photoURL,
+                username: username,
+                bio: bio,
+                bannerURL: bannerURL,
                 email: user.email,
                 lastSeen: new Date()
             }, { merge: true });
 
+            setCurrentUsername(username);
             setMessage({ type: 'success', text: 'Profile updated successfully!' });
             setTimeout(() => setMessage(null), 3000);
         } catch (error) {
@@ -520,6 +553,119 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                                                 }}>
                                                     Enter a direct link to an image file
                                                 </p>
+                                            </div>
+
+                                            {/* Username */}
+                                            <div style={{ marginBottom: '24px' }}>
+                                                <label style={{
+                                                    display: 'block',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: 'var(--text-secondary)',
+                                                    marginBottom: '10px',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.5px'
+                                                }}>
+                                                    Username (Unique)
+                                                </label>
+                                                <div style={{ position: 'relative' }}>
+                                                    <span style={{
+                                                        position: 'absolute',
+                                                        left: '16px',
+                                                        top: '14px',
+                                                        color: 'var(--text-muted)',
+                                                        fontSize: '15px'
+                                                    }}>@</span>
+                                                    <input
+                                                        type="text"
+                                                        value={username}
+                                                        onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                                        placeholder="username"
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '14px 16px 14px 32px',
+                                                            backgroundColor: 'var(--bg-primary)',
+                                                            border: '2px solid var(--glass-border)',
+                                                            borderRadius: '12px',
+                                                            color: 'white',
+                                                            fontSize: '15px',
+                                                            outline: 'none',
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                        onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
+                                                        onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Bio */}
+                                            <div style={{ marginBottom: '24px' }}>
+                                                <label style={{
+                                                    display: 'block',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: 'var(--text-secondary)',
+                                                    marginBottom: '10px',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.5px'
+                                                }}>
+                                                    About Me
+                                                </label>
+                                                <textarea
+                                                    value={bio}
+                                                    onChange={(e) => setBio(e.target.value)}
+                                                    placeholder="Tell us about yourself..."
+                                                    rows={3}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '14px 16px',
+                                                        backgroundColor: 'var(--bg-primary)',
+                                                        border: '2px solid var(--glass-border)',
+                                                        borderRadius: '12px',
+                                                        color: 'white',
+                                                        fontSize: '15px',
+                                                        outline: 'none',
+                                                        transition: 'all 0.2s',
+                                                        resize: 'none',
+                                                        fontFamily: 'inherit'
+                                                    }}
+                                                    onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
+                                                    onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                                />
+                                            </div>
+
+                                            {/* Banner URL */}
+                                            <div style={{ marginBottom: '24px' }}>
+                                                <label style={{
+                                                    display: 'block',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: 'var(--text-secondary)',
+                                                    marginBottom: '10px',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.5px'
+                                                }}>
+                                                    Banner URL
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={bannerURL}
+                                                    onChange={(e) => setBannerURL(e.target.value)}
+                                                    placeholder="https://example.com/banner.png"
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '14px 16px',
+                                                        backgroundColor: 'var(--bg-primary)',
+                                                        border: '2px solid var(--glass-border)',
+                                                        borderRadius: '12px',
+                                                        color: 'white',
+                                                        fontSize: '15px',
+                                                        outline: 'none',
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                    onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
+                                                    onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                                />
                                             </div>
 
                                             <button

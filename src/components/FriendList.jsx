@@ -16,48 +16,67 @@ export default function FriendList({ onStartDM }) {
     const [activeDropdown, setActiveDropdown] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Fetch Friends and Requests
+    // Fetch Friends and Requests (Real-time)
     useEffect(() => {
         if (!currentUser) return;
 
         const friendsRef = collection(db, "users", currentUser.uid, "friends");
-        const unsubscribe = onSnapshot(friendsRef, async (snapshot) => {
-            const friendsList = [];
-            const requestsList = [];
 
-            const promises = snapshot.docs.map(async (docSnapshot) => {
-                const data = docSnapshot.data();
+        // Store unsubscribe functions for user listeners
+        let userUnsubscribes = {};
+
+        const unsubscribeFriends = onSnapshot(friendsRef, (snapshot) => {
+            const currentFriendIds = new Set();
+
+            snapshot.docs.forEach((docSnapshot) => {
                 const friendUid = docSnapshot.id;
+                const data = docSnapshot.data();
+                currentFriendIds.add(friendUid);
 
-                let friendData = { uid: friendUid, displayName: 'Unknown', photoURL: null, status: 'offline' };
-                try {
-                    const userDoc = await getDoc(doc(db, "users", friendUid));
-                    if (userDoc.exists()) {
-                        const userData = userDoc.data();
-                        const isOnline = userData.lastSeen && (new Date() - userData.lastSeen.toDate()) < 2 * 60 * 1000;
-                        friendData = {
-                            ...userData,
-                            uid: friendUid,
-                            status: isOnline ? 'online' : 'offline'
-                        };
-                    }
-                } catch (e) {
-                    console.error("Error fetching friend details", e);
-                }
+                // If we don't have a listener for this user yet, create one
+                if (!userUnsubscribes[friendUid]) {
+                    userUnsubscribes[friendUid] = onSnapshot(doc(db, "users", friendUid), (userDoc) => {
+                        if (userDoc.exists()) {
+                            const userData = userDoc.data();
+                            const isOnline = userData.lastSeen && (new Date() - userData.lastSeen.toDate()) < 2 * 60 * 1000;
 
-                if (data.status === 'accepted') {
-                    friendsList.push({ ...friendData, ...data });
-                } else if (data.status === 'pending_received') {
-                    requestsList.push({ ...friendData, ...data });
+                            setFriends(prev => {
+                                const otherFriends = prev.filter(f => f.uid !== friendUid);
+                                if (data.status === 'accepted') {
+                                    return [...otherFriends, { ...userData, uid: friendUid, status: isOnline ? 'online' : 'offline', ...data }];
+                                }
+                                return otherFriends;
+                            });
+
+                            setPendingRequests(prev => {
+                                const otherRequests = prev.filter(r => r.uid !== friendUid);
+                                if (data.status === 'pending_received') {
+                                    return [...otherRequests, { ...userData, uid: friendUid, status: isOnline ? 'online' : 'offline', ...data }];
+                                }
+                                return otherRequests;
+                            });
+                        }
+                    });
                 }
             });
 
-            await Promise.all(promises);
-            setFriends(friendsList);
-            setPendingRequests(requestsList);
+            // Cleanup listeners for removed friends
+            Object.keys(userUnsubscribes).forEach(uid => {
+                if (!currentFriendIds.has(uid)) {
+                    userUnsubscribes[uid]();
+                    delete userUnsubscribes[uid];
+
+                    // Remove from state
+                    setFriends(prev => prev.filter(f => f.uid !== uid));
+                    setPendingRequests(prev => prev.filter(r => r.uid !== uid));
+                }
+            });
         });
 
-        return unsubscribe;
+        return () => {
+            unsubscribeFriends();
+            Object.values(userUnsubscribes).forEach(unsub => unsub());
+        };
     }, [currentUser]);
 
     useEffect(() => {

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import Peer from 'peerjs';
 import { useAuth } from './AuthContext';
+import silentAudio from '../assets/sounds/silent.mp3';
 
 const PeerContext = createContext();
 
@@ -53,6 +54,40 @@ export function PeerProvider({ children }) {
             newPeer.destroy();
         };
     }, [currentUser?.uid]);
+
+    // Keep-Alive Mechanism (Wake Lock + Silent Audio)
+    useEffect(() => {
+        if (!activeCall) return;
+
+        let wakeLock = null;
+        const audio = new Audio(silentAudio);
+        audio.loop = true;
+        audio.volume = 0.01; // Barely audible, just enough to keep the tab active
+
+        const requestWakeLock = async () => {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Wake Lock active');
+                }
+            } catch (err) {
+                console.error('Wake Lock failed:', err);
+            }
+        };
+
+        // Start everything
+        requestWakeLock();
+        audio.play().catch(e => console.log("Silent audio play failed:", e));
+
+        // Cleanup
+        return () => {
+            if (wakeLock) {
+                wakeLock.release().then(() => console.log('Wake Lock released'));
+            }
+            audio.pause();
+            audio.src = "";
+        };
+    }, [activeCall]);
 
     const callUser = (remotePeerId, stream) => {
         if (!peer) {

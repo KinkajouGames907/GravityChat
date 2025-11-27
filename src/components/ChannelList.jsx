@@ -3,7 +3,7 @@ import { Hash, Volume2, ChevronDown, Mic, Headphones, Settings, Plus, MessageCir
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, updateDoc, arrayUnion, collection, query, where, getDocs, setDoc, getDoc, arrayRemove } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, arrayUnion, collection, query, where, getDocs, setDoc, getDoc, arrayRemove, orderBy } from 'firebase/firestore';
 import SettingsModal from './SettingsModal';
 import { hasPermission, PERMISSIONS, isServerOwner } from '../utils/permissions';
 
@@ -109,6 +109,8 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
     const [currentUserMember, setCurrentUserMember] = useState(null);
+    const [roles, setRoles] = useState([]);
+    const [userRoleColor, setUserRoleColor] = useState(null);
 
     // ... (rest of the component logic remains the same until return)
 
@@ -173,11 +175,32 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
             }
         });
 
+        // Fetch Roles for Color Logic
+        const rolesUnsubscribe = onSnapshot(query(collection(db, "servers", activeServerId, "roles"), orderBy("position", "asc")), (snapshot) => {
+            const roleData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setRoles(roleData);
+        });
+
         return () => {
             unsubscribe();
             memberUnsubscribe();
+            rolesUnsubscribe();
         };
     }, [activeServerId, currentUser, isMobileView]);
+
+    // Calculate User Role Color
+    useEffect(() => {
+        if (currentUserMember && roles.length > 0 && currentUserMember.roles && currentUserMember.roles.length > 0) {
+            const highestRole = roles.find(r => currentUserMember.roles.includes(r.id));
+            if (highestRole && highestRole.color) {
+                setUserRoleColor(highestRole.color);
+            } else {
+                setUserRoleColor(null);
+            }
+        } else {
+            setUserRoleColor(null);
+        }
+    }, [currentUserMember, roles]);
 
     // Search Users Effect
     useEffect(() => {
@@ -575,7 +598,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                     {currentUser?.email?.[0].toUpperCase() || 'U'}
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div style={{ fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', color: userRoleColor || 'var(--text-primary)' }}>
                         {currentUser?.displayName || 'User'}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
