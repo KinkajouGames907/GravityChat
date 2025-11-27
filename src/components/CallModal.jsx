@@ -25,27 +25,77 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     const myVideo = useRef();
     const userVideo = useRef();
 
+    // Web Audio API Refs
+    const audioContextRef = useRef(null);
+    const gainNodeRef = useRef(null);
+    const audioOutputRef = useRef(null);
+
     useEffect(() => {
         if (myVideo.current && stream) {
             myVideo.current.srcObject = stream;
         }
     }, [stream, isMinimized]);
 
+    // Handle Remote Stream & Audio Amplification
     useEffect(() => {
-        if (userVideo.current && remoteStream) {
-            userVideo.current.srcObject = remoteStream;
-            userVideo.current.volume = remoteVolume; // Apply volume
-            // Apply audio output device if selected
-            if (selectedAudioOutput && typeof userVideo.current.setSinkId === 'function') {
-                userVideo.current.setSinkId(selectedAudioOutput).catch(err => console.error("Error setting sink ID:", err));
-            }
-        }
-    }, [remoteStream, isMinimized, selectedAudioOutput]);
+        if (!remoteStream) return;
 
-    // Apply volume when it changes
-    useEffect(() => {
+        // 1. Set video source (visuals only)
         if (userVideo.current) {
-            userVideo.current.volume = remoteVolume;
+            userVideo.current.srcObject = remoteStream;
+            userVideo.current.muted = true; // Mute video element, we play audio via Web Audio API
+        }
+
+        // 2. Setup Web Audio API for amplification
+        let audioCtx;
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+            const gainNode = audioCtx.createGain();
+
+            // Set initial volume
+            gainNode.gain.value = remoteVolume;
+
+            // Create source from remote stream
+            const source = audioCtx.createMediaStreamSource(remoteStream);
+            const destination = audioCtx.createMediaStreamDestination();
+
+            // Connect graph: Source -> Gain -> Destination
+            source.connect(gainNode);
+            gainNode.connect(destination);
+
+            // 3. Play processed audio through hidden audio element
+            if (audioOutputRef.current) {
+                audioOutputRef.current.srcObject = destination.stream;
+                audioOutputRef.current.play().catch(e => console.error("Error playing processed audio:", e));
+
+                // Apply sink ID if already selected
+                if (selectedAudioOutput && typeof audioOutputRef.current.setSinkId === 'function') {
+                    audioOutputRef.current.setSinkId(selectedAudioOutput).catch(err => console.error("Error setting sink ID:", err));
+                }
+            }
+
+            // Store refs
+            audioContextRef.current = audioCtx;
+            gainNodeRef.current = gainNode;
+
+        } catch (err) {
+            console.error("Web Audio API setup failed:", err);
+            // Fallback: Unmute video element if Web Audio fails
+            if (userVideo.current) userVideo.current.muted = false;
+        }
+
+        return () => {
+            if (audioCtx) {
+                audioCtx.close();
+            }
+        };
+    }, [remoteStream]); // Re-run if remote stream changes
+
+    // Apply volume changes to GainNode
+    useEffect(() => {
+        if (gainNodeRef.current) {
+            gainNodeRef.current.gain.value = remoteVolume;
         }
     }, [remoteVolume]);
 
@@ -204,9 +254,10 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
 
     const handleAudioOutputChange = async (deviceId) => {
         setSelectedAudioOutput(deviceId);
-        if (userVideo.current && typeof userVideo.current.setSinkId === 'function') {
+        // Apply to the hidden audio element instead of video element
+        if (audioOutputRef.current && typeof audioOutputRef.current.setSinkId === 'function') {
             try {
-                await userVideo.current.setSinkId(deviceId);
+                await audioOutputRef.current.setSinkId(deviceId);
             } catch (err) {
                 console.error("Error setting audio output:", err);
             }
@@ -281,6 +332,8 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 >
                     <Maximize2 size={14} />
                 </button>
+                {/* Hidden Audio Output for Amplification */}
+                <audio ref={audioOutputRef} style={{ display: 'none' }} />
             </motion.div>,
             document.body
         );
@@ -350,6 +403,9 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 >
                     <video playsInline muted ref={myVideo} autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </motion.div>
+
+                {/* Hidden Audio Output for Amplification */}
+                <audio ref={audioOutputRef} style={{ display: 'none' }} />
 
                 {/* Controls */}
                 <div style={{
