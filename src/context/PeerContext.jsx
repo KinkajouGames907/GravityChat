@@ -17,11 +17,13 @@ export function PeerProvider({ children }) {
     const peerRef = useRef(null);
 
     useEffect(() => {
-        if (!currentUser) return;
+        const uid = currentUser?.uid;
+        if (!uid) return;
+
+        console.log('Initializing PeerJS for user:', uid);
 
         // Initialize Peer with user's UID as the Peer ID
-        // This makes it easy to call someone if you know their UID
-        const newPeer = new Peer(currentUser.uid, {
+        const newPeer = new Peer(uid, {
             debug: 2
         });
 
@@ -39,12 +41,18 @@ export function PeerProvider({ children }) {
 
         newPeer.on('error', (err) => {
             console.error('PeerJS error:', err);
+            if (err.type === 'unavailable-id') {
+                console.error(`Peer ID ${uid} is already taken. This might happen if you have multiple tabs open or just reloaded.`);
+                // Optional: You could try to append a random suffix if you want to allow multiple tabs, 
+                // but for a 1-on-1 calling app, you usually want one active session per user.
+            }
         });
 
         return () => {
+            console.log('Destroying PeerJS instance for user:', uid);
             newPeer.destroy();
         };
-    }, [currentUser]);
+    }, [currentUser?.uid]);
 
     const callUser = (remotePeerId, stream) => {
         if (!peer) {
