@@ -220,17 +220,17 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
                             borderRadius: '12px',
                             overflow: 'hidden',
                             display: 'flex',
-                            flexDirection: isMobile ? 'row' : 'column',
+                            flexDirection: 'column', // Always column for better layout
                             border: '1px solid var(--glass-border)',
                             transition: 'transform 0.2s',
-                            minHeight: isMobile ? '100px' : '280px', // Enforce height
+                            minHeight: '280px',
                             position: 'relative'
                         }}
                             className="hover:scale-[1.02]"
                         >
                             <div style={{
-                                height: isMobile ? '100%' : '120px',
-                                width: isMobile ? '100px' : '100%',
+                                height: '120px',
+                                width: '100%',
                                 backgroundColor: 'var(--accent)',
                                 backgroundImage: server.icon ? `url(${server.icon})` : 'linear-gradient(45deg, var(--accent), #8b5cf6)',
                                 backgroundSize: 'cover',

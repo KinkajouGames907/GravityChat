@@ -16,6 +16,13 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
     // For this MVP, we'll assume members are stored in the server doc or we just fetch all users (simplified)
 
     const [currentUserMember, setCurrentUserMember] = useState(null);
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     useEffect(() => {
         if (!isOpen || !serverId || !currentUser) return;
@@ -144,7 +151,7 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
-            padding: '20px'
+            padding: isMobile ? '0' : '20px'
         }}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
@@ -154,27 +161,32 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 style={{
-                    width: '800px',
-                    height: '600px',
+                    width: isMobile ? '100%' : '800px',
+                    height: isMobile ? '100%' : '600px',
                     backgroundColor: 'var(--bg-primary)',
-                    borderRadius: '8px',
+                    borderRadius: isMobile ? '0' : '8px',
                     display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
                     overflow: 'hidden',
                     boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
                 }}
             >
                 {/* Sidebar */}
                 <div style={{
-                    width: '200px',
+                    width: isMobile ? '100%' : '200px',
                     backgroundColor: 'var(--bg-secondary)',
-                    padding: '16px 8px',
+                    padding: isMobile ? '12px' : '16px 8px',
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px'
+                    flexDirection: isMobile ? 'row' : 'column',
+                    gap: '4px',
+                    overflowX: isMobile ? 'auto' : 'visible',
+                    borderBottom: isMobile ? '1px solid var(--glass-border)' : 'none'
                 }}>
-                    <div style={{ padding: '0 8px 16px', fontWeight: 700, fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                        {serverData?.name}
-                    </div>
+                    {!isMobile && (
+                        <div style={{ padding: '0 8px 16px', fontWeight: 700, fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                            {serverData?.name}
+                        </div>
+                    )}
                     {[
                         { id: 'overview', label: 'Overview', icon: Settings },
                         { id: 'roles', label: 'Roles', icon: Shield },
@@ -194,7 +206,8 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                 cursor: 'pointer',
                                 textAlign: 'left',
                                 fontSize: '14px',
-                                fontWeight: 500
+                                fontWeight: 500,
+                                whiteSpace: 'nowrap'
                             }}
                             className="hover:bg-white/5"
                         >
@@ -205,8 +218,8 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                 </div>
 
                 {/* Content */}
-                < div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div style={{ padding: isMobile ? '16px' : '24px', flex: 1, overflowY: 'auto' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <h2 style={{ fontSize: '20px', fontWeight: 700 }}>
                                 {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}

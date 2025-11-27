@@ -68,22 +68,24 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
     };
 
     const handleSave = async () => {
-        if (!currentUser) return;
+        const user = auth.currentUser;
+        if (!user) return;
+
         setIsLoading(true);
         setMessage(null);
 
         try {
-            await updateProfile(currentUser, {
+            await updateProfile(user, {
                 displayName: displayName,
                 photoURL: photoURL
             });
 
             // Update Firestore user document
             const db = getFirestore();
-            await setDoc(doc(db, 'users', currentUser.uid), {
+            await setDoc(doc(db, 'users', user.uid), {
                 displayName: displayName,
                 photoURL: photoURL,
-                email: currentUser.email,
+                email: user.email,
                 lastSeen: new Date()
             }, { merge: true });
 
@@ -100,11 +102,14 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
     const handleDeleteAccount = async () => {
         if (!window.confirm('Are you sure you want to delete your account? This cannot be undone.')) return;
 
+        const user = auth.currentUser;
+        if (!user) return;
+
         setIsLoading(true);
         try {
             const db = getFirestore();
-            await deleteDoc(doc(db, 'users', currentUser.uid));
-            await deleteUser(currentUser);
+            await deleteDoc(doc(db, 'users', user.uid));
+            await deleteUser(user);
             onClose();
         } catch (error) {
             console.error('Error deleting account:', error);
