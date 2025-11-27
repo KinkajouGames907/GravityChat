@@ -166,6 +166,16 @@ function Home() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Incoming Call Modal */}
+      {incomingCall && (
+        <CallModal
+          callId={incomingCall.id}
+          currentUser={currentUser}
+          isCaller={false}
+          onClose={() => setIncomingCall(null)}
+        />
+      )}
     </div>
   );
 }
