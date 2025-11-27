@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { motion } from 'framer-motion';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Minimize2, Maximize2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Minimize2, Maximize2, Settings, X, Check } from 'lucide-react';
 import { usePeer } from '../context/PeerContext';
 
 export default function CallModal({ call, currentUser, isCaller, onClose, remoteUserId }) {
@@ -12,6 +12,14 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     const [isVideoOff, setIsVideoOff] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
 
+    // Device Settings State
+    const [showSettings, setShowSettings] = useState(false);
+    const [devices, setDevices] = useState([]);
+    const [selectedAudioInput, setSelectedAudioInput] = useState('');
+    const [selectedVideoInput, setSelectedVideoInput] = useState('');
+    const [selectedAudioOutput, setSelectedAudioOutput] = useState('');
+    const [peerCall, setPeerCall] = useState(null); // Store the actual PeerJS MediaConnection
+
     const { callUser, answerCall, endCall: endPeerCall } = usePeer();
     const myVideo = useRef();
     const userVideo = useRef();
@@ -20,19 +28,54 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         if (myVideo.current && stream) {
             myVideo.current.srcObject = stream;
         }
-    }, [stream, isMinimized]); // Re-attach when minimized state changes (portal)
+    }, [stream, isMinimized]);
 
     useEffect(() => {
         if (userVideo.current && remoteStream) {
             userVideo.current.srcObject = remoteStream;
+            // Apply audio output device if selected
+            if (selectedAudioOutput && typeof userVideo.current.setSinkId === 'function') {
+                userVideo.current.setSinkId(selectedAudioOutput).catch(err => console.error("Error setting sink ID:", err));
+            }
         }
-    }, [remoteStream, isMinimized]);
+    }, [remoteStream, isMinimized, selectedAudioOutput]);
+
+    // Fetch Devices
+    useEffect(() => {
+        const getDevices = async () => {
+            try {
+                const devs = await navigator.mediaDevices.enumerateDevices();
+                setDevices(devs);
+
+                // Set defaults
+                const audioIn = devs.find(d => d.kind === 'audioinput');
+                const videoIn = devs.find(d => d.kind === 'videoinput');
+                const audioOut = devs.find(d => d.kind === 'audiooutput');
+
+                if (audioIn) setSelectedAudioInput(audioIn.deviceId);
+                if (videoIn) setSelectedVideoInput(videoIn.deviceId);
+                if (audioOut) setSelectedAudioOutput(audioOut.deviceId);
+            } catch (error) {
+                console.error("Error enumerating devices:", error);
+            }
+        };
+        getDevices();
+
+        // Listen for device changes
+        navigator.mediaDevices.addEventListener('devicechange', getDevices);
+        return () => navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+    }, []);
 
     useEffect(() => {
         let currentCall = call;
 
-        // Get user media
-        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        // Get user media with specific devices if selected, otherwise default
+        const constraints = {
+            video: selectedVideoInput ? { deviceId: { exact: selectedVideoInput } } : true,
+            audio: selectedAudioInput ? { deviceId: { exact: selectedAudioInput } } : true
+        };
+
+        navigator.mediaDevices.getUserMedia(constraints)
             .then((currentStream) => {
                 setStream(currentStream);
 
@@ -41,6 +84,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                     setCallStatus('calling');
                     currentCall = callUser(remoteUserId, currentStream);
                     if (currentCall) {
+                        setPeerCall(currentCall); // Save reference
                         currentCall.on('stream', (remoteStream) => {
                             setRemoteStream(remoteStream);
                             setCallStatus('connected');
@@ -57,6 +101,9 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 } else {
                     // Incoming call - wait for user action
                     setCallStatus('incoming');
+                    // For incoming, 'call' prop IS the MediaConnection, but we don't set it to peerCall yet until answered?
+                    // Actually we can set it, but we haven't answered yet.
+                    setPeerCall(call);
                 }
             })
             .catch((err) => {
@@ -71,13 +118,15 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 stream.getTracks().forEach(track => track.stop());
             }
         };
-    }, []);
+    }, []); // Run once on mount. Device switching is handled separately.
 
     const handleAcceptCall = () => {
         if (!call || !stream) return;
 
         setCallStatus('connected');
         call.answer(stream);
+        setPeerCall(call); // Ensure we have the reference
+
         call.on('stream', (remoteStream) => {
             setRemoteStream(remoteStream);
         });
@@ -88,17 +137,90 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         });
     };
 
+    const switchMediaDevice = async (type, deviceId) => {
+        if (!stream) return;
+
+        const isVideo = type === 'videoinput';
+        const constraints = {
+            video: isVideo ? { deviceId: { exact: deviceId } } : false,
+            audio: !isVideo ? { deviceId: { exact: deviceId } } : false
+        };
+
+        try {
+            const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+            const newTrack = isVideo ? newStream.getVideoTracks()[0] : newStream.getAudioTracks()[0];
+
+            // Replace track in local stream
+            const oldTrack = isVideo ? stream.getVideoTracks()[0] : stream.getAudioTracks()[0];
+            if (oldTrack) {
+                stream.removeTrack(oldTrack);
+                oldTrack.stop();
+            }
+            stream.addTrack(newTrack);
+
+            // Force update video element
+            if (myVideo.current) {
+                myVideo.current.srcObject = stream;
+            }
+
+            // Replace track in Peer Connection
+            if (peerCall && peerCall.peerConnection) {
+                const senders = peerCall.peerConnection.getSenders();
+                const sender = senders.find(s => s.track && s.track.kind === (isVideo ? 'video' : 'audio'));
+                if (sender) {
+                    sender.replaceTrack(newTrack);
+                }
+            }
+
+            // Update state
+            if (isVideo) {
+                setSelectedVideoInput(deviceId);
+                setIsVideoOff(false); // Reset mute state on switch
+            } else {
+                setSelectedAudioInput(deviceId);
+                setIsMuted(false);
+            }
+
+            // We don't need to setStream(newStream) because we mutated the existing stream object by adding/removing tracks.
+            // But React might not know to re-render if we need it to. 
+            // Better to create a new MediaStream to trigger effects if needed, but srcObject updates usually handle it.
+            // Let's force a re-render just in case.
+            setStream(new MediaStream(stream.getTracks()));
+
+        } catch (err) {
+            console.error(`Error switching ${type}:`, err);
+            alert(`Failed to switch ${isVideo ? 'camera' : 'microphone'}`);
+        }
+    };
+
+    const handleAudioOutputChange = async (deviceId) => {
+        setSelectedAudioOutput(deviceId);
+        if (userVideo.current && typeof userVideo.current.setSinkId === 'function') {
+            try {
+                await userVideo.current.setSinkId(deviceId);
+            } catch (err) {
+                console.error("Error setting audio output:", err);
+            }
+        }
+    };
+
     const toggleMute = () => {
         if (stream) {
-            stream.getAudioTracks()[0].enabled = !stream.getAudioTracks()[0].enabled;
-            setIsMuted(!isMuted);
+            const track = stream.getAudioTracks()[0];
+            if (track) {
+                track.enabled = !track.enabled;
+                setIsMuted(!track.enabled);
+            }
         }
     };
 
     const toggleVideo = () => {
         if (stream) {
-            stream.getVideoTracks()[0].enabled = !stream.getVideoTracks()[0].enabled;
-            setIsVideoOff(!isVideoOff);
+            const track = stream.getVideoTracks()[0];
+            if (track) {
+                track.enabled = !track.enabled;
+                setIsVideoOff(!track.enabled);
+            }
         }
     };
 
@@ -291,6 +413,17 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                             >
                                 {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
                             </button>
+
+                            <button
+                                onClick={() => setShowSettings(!showSettings)}
+                                className="icon-btn"
+                                style={{
+                                    backgroundColor: showSettings ? 'var(--accent)' : 'var(--bg-tertiary)',
+                                    width: '50px', height: '50px', borderRadius: '50%'
+                                }}
+                            >
+                                <Settings size={24} />
+                            </button>
                         </>
                     )}
                 </div>
@@ -311,6 +444,121 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                         <Minimize2 size={20} />
                     </button>
                 </div>
+
+                {/* Settings Modal */}
+                <AnimatePresence>
+                    {showSettings && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                            style={{
+                                position: 'absolute',
+                                bottom: '110px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                width: '320px',
+                                backgroundColor: 'var(--bg-secondary)',
+                                borderRadius: '16px',
+                                padding: '20px',
+                                border: '1px solid var(--glass-border)',
+                                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                                zIndex: 2001
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Call Settings</h3>
+                                <button onClick={() => setShowSettings(false)} className="icon-btn" style={{ width: '28px', height: '28px' }}>
+                                    <X size={16} />
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {/* Camera */}
+                                <div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                        <Video size={14} /> CAMERA
+                                    </label>
+                                    <select
+                                        value={selectedVideoInput}
+                                        onChange={(e) => switchMediaDevice('videoinput', e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px',
+                                            borderRadius: '8px',
+                                            backgroundColor: 'var(--bg-tertiary)',
+                                            border: '1px solid var(--glass-border)',
+                                            color: 'white',
+                                            fontSize: '13px'
+                                        }}
+                                    >
+                                        {devices.filter(d => d.kind === 'videoinput').map(device => (
+                                            <option key={device.deviceId} value={device.deviceId}>
+                                                {device.label || `Camera ${device.deviceId.slice(0, 5)}...`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Microphone */}
+                                <div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                        <Mic size={14} /> MICROPHONE
+                                    </label>
+                                    <select
+                                        value={selectedAudioInput}
+                                        onChange={(e) => switchMediaDevice('audioinput', e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px',
+                                            borderRadius: '8px',
+                                            backgroundColor: 'var(--bg-tertiary)',
+                                            border: '1px solid var(--glass-border)',
+                                            color: 'white',
+                                            fontSize: '13px'
+                                        }}
+                                    >
+                                        {devices.filter(d => d.kind === 'audioinput').map(device => (
+                                            <option key={device.deviceId} value={device.deviceId}>
+                                                {device.label || `Microphone ${device.deviceId.slice(0, 5)}...`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Speaker */}
+                                <div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                        <Phone size={14} /> SPEAKER
+                                    </label>
+                                    <select
+                                        value={selectedAudioOutput}
+                                        onChange={(e) => handleAudioOutputChange(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px',
+                                            borderRadius: '8px',
+                                            backgroundColor: 'var(--bg-tertiary)',
+                                            border: '1px solid var(--glass-border)',
+                                            color: 'white',
+                                            fontSize: '13px'
+                                        }}
+                                        disabled={!('setSinkId' in HTMLMediaElement.prototype)}
+                                    >
+                                        {devices.filter(d => d.kind === 'audiooutput').map(device => (
+                                            <option key={device.deviceId} value={device.deviceId}>
+                                                {device.label || `Speaker ${device.deviceId.slice(0, 5)}...`}
+                                            </option>
+                                        ))}
+                                        {!('setSinkId' in HTMLMediaElement.prototype) && (
+                                            <option disabled>Browser not supported</option>
+                                        )}
+                                    </select>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </div>,
         document.body
