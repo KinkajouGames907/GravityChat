@@ -17,15 +17,24 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     const userVideo = useRef();
 
     useEffect(() => {
+        if (myVideo.current && stream) {
+            myVideo.current.srcObject = stream;
+        }
+    }, [stream, isMinimized]); // Re-attach when minimized state changes (portal)
+
+    useEffect(() => {
+        if (userVideo.current && remoteStream) {
+            userVideo.current.srcObject = remoteStream;
+        }
+    }, [remoteStream, isMinimized]);
+
+    useEffect(() => {
         let currentCall = call;
 
         // Get user media
         navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then((currentStream) => {
                 setStream(currentStream);
-                if (myVideo.current) {
-                    myVideo.current.srcObject = currentStream;
-                }
 
                 if (isCaller) {
                     // Initiate call
@@ -35,9 +44,6 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                         currentCall.on('stream', (remoteStream) => {
                             setRemoteStream(remoteStream);
                             setCallStatus('connected');
-                            if (userVideo.current) {
-                                userVideo.current.srcObject = remoteStream;
-                            }
                         });
                         currentCall.on('close', () => handleEndCall());
                         currentCall.on('error', (e) => {
@@ -74,9 +80,6 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         call.answer(stream);
         call.on('stream', (remoteStream) => {
             setRemoteStream(remoteStream);
-            if (userVideo.current) {
-                userVideo.current.srcObject = remoteStream;
-            }
         });
         call.on('close', () => handleEndCall());
         call.on('error', (e) => {
