@@ -18,6 +18,7 @@ export default function MobileLayout() {
     const [activeChannelName, setActiveChannelName] = useState('general');
     const [showSettings, setShowSettings] = useState(false);
     const [settingsInitialTab, setSettingsInitialTab] = useState('account');
+    const [activeDmUser, setActiveDmUser] = useState(null);
     const { currentUser } = useAuth();
 
     const handleLogout = async () => {
@@ -122,6 +123,7 @@ export default function MobileLayout() {
                                     setActiveChannelId={setActiveChannelId}
                                     setActiveChannelName={setActiveChannelName}
                                     isMobileView={true}
+                                    setActiveDmUser={setActiveDmUser}
                                 />
                             </div>
                         )}
@@ -132,6 +134,7 @@ export default function MobileLayout() {
                                 activeServerId={activeServerId}
                                 isMobile={true}
                                 onOpenMenu={() => setActiveChannelId(null)}
+                                activeDmUser={activeDmUser}
                             />
                         )}
                     </div>
@@ -150,6 +153,7 @@ export default function MobileLayout() {
                                 const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
                                 setActiveChannelId(dmId);
                                 setActiveChannelName(user.displayName);
+                                setActiveDmUser(user);
                                 setActiveServerId('home');
                                 setActiveTab('chat');
                             }}
