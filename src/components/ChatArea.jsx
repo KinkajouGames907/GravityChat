@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, Trash2, MoreHorizontal, Mic, X, Image as ImageIcon, FileText, Download, Flag } from 'lucide-react';
+import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, Trash2, MoreHorizontal, Mic, X, Image as ImageIcon, FileText, Download, Flag, Phone, Video } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, where, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import MemberList from './MemberList';
 import EmojiPicker from './EmojiPicker';
 import GifPicker from './GifPicker';
 import FileUpload from './FileUpload';
+import CallModal from './CallModal';
 import { isSuperAdmin } from '../utils/permissions';
 
 import userAvatar from '../assets/user_avatar.png';
@@ -435,7 +436,7 @@ const TypingIndicator = ({ typingUsers }) => {
     );
 };
 
-export default function ChatArea({ activeChannelId, activeChannelName, activeServerId, isMobile, onOpenMenu }) {
+export default function ChatArea({ activeChannelId, activeChannelName, activeServerId, isMobile, onOpenMenu, activeDmUser }) {
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [showMemberList, setShowMemberList] = useState(!isMobile);
@@ -445,6 +446,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
     const [editingMessage, setEditingMessage] = useState(null);
     const [typingUsers, setTypingUsers] = useState([]);
     const [isRecording, setIsRecording] = useState(false);
+    const [activeCall, setActiveCall] = useState(null); // { id, isCaller }
     const { currentUser } = useAuth();
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -482,7 +484,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 });
 
             setMessages(msgs);
-            scrollToBottom();
+            // scrollToBottom is now handled by useEffect
 
             // Notification Logic
             snapshot.docChanges().forEach((change) => {
@@ -532,6 +534,11 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
 
         return unsubscribe;
     }, [activeChannelId, currentUser.uid]);
+
+    // Auto-scroll to bottom when messages change
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
 
     const scrollToBottom = () => {
         setTimeout(() => {
@@ -713,6 +720,29 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         }
     };
 
+    const startCall = async () => {
+        if (!activeChannelId) return;
+
+        // Create call document
+        const callDoc = await addDoc(collection(db, "calls"), {
+            channelId: activeChannelId,
+            caller: {
+                uid: currentUser.uid,
+                displayName: currentUser.displayName,
+                photoURL: currentUser.photoURL
+            },
+            receiver: {
+                uid: activeDmUser?.uid || 'unknown',
+                displayName: activeDmUser?.displayName || 'Unknown User',
+                photoURL: activeDmUser?.photoURL || null
+            },
+            status: 'offering',
+            createdAt: serverTimestamp()
+        });
+
+        setActiveCall({ id: callDoc.id, isCaller: true });
+    };
+
     if (!activeChannelId) {
         return (
             <div style={{
@@ -806,6 +836,18 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                             <Users size={20} />
                         </button>
                     )}
+
+                    {/* Call Button (only in DMs for now or if we want server calls) */}
+                    {activeServerId === 'home' && (
+                        <button
+                            className="icon-btn"
+                            onClick={startCall}
+                            title="Start Call"
+                        >
+                            <Phone size={20} />
+                        </button>
+                    )}
+
                     {!isMobile && (
                         <div style={{ position: 'relative' }}>
                             <input
@@ -826,6 +868,16 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                     )}
                 </div>
             </div>
+
+            {/* Call Modal */}
+            {activeCall && (
+                <CallModal
+                    callId={activeCall.id}
+                    currentUser={currentUser}
+                    isCaller={activeCall.isCaller}
+                    onClose={() => setActiveCall(null)}
+                />
+            )}
 
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
                 {/* Main Chat Content */}
@@ -867,6 +919,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                 />
                             ))}
                         </AnimatePresence>
+                        <div ref={messagesEndRef} />
                     </div>
 
                     {/* Input Area */}

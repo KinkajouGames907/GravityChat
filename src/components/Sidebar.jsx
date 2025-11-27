@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Plus, MessageCircle, Settings, Compass } from 'lucide-react';
+import { Plus, MessageCircle, Settings, Compass, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, where, documentId } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, where, documentId, deleteDoc, updateDoc, arrayRemove, getDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import CreateServerModal from './CreateServerModal';
 import ServerSettingsModal from './ServerSettingsModal';
 import ServerBrowser from './ServerBrowser';
 import SuperAdminModal from './SuperAdminModal';
-import { isSuperAdmin } from '../utils/permissions';
+import { isSuperAdmin, isServerOwner } from '../utils/permissions';
 
 import serverPlaceholder from '../assets/server_placeholder.png';
 
@@ -145,6 +145,33 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
         window.addEventListener('click', handleClick);
         return () => window.removeEventListener('click', handleClick);
     }, []);
+
+    const handleLeaveServer = async (serverId) => {
+        if (!confirm("Are you sure you want to leave this server?")) return;
+
+        try {
+            // Check if owner
+            const serverDoc = await getDoc(doc(db, "servers", serverId));
+            if (serverDoc.exists() && isServerOwner(currentUser, serverDoc.data())) {
+                alert("You cannot leave a server you own. Please delete it or transfer ownership first.");
+                return;
+            }
+
+            // 1. Remove from server members
+            await deleteDoc(doc(db, "servers", serverId, "members", currentUser.uid));
+
+            // 2. Remove from user's joinedServers
+            await updateDoc(doc(db, "users", currentUser.uid), {
+                joinedServers: arrayRemove(serverId)
+            });
+
+            setActiveServerId('home');
+            setContextMenu(null);
+        } catch (error) {
+            console.error("Error leaving server:", error);
+            alert("Failed to leave server.");
+        }
+    };
 
     // Mobile grid layout
     if (isMobileView) {
@@ -445,11 +472,13 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                     isOpen={isBrowserOpen}
                     onClose={() => setIsBrowserOpen(false)}
                     onJoinServer={(serverId) => setActiveServerId(serverId)}
+                    isMobile={isMobileView}
                 />
 
                 <SuperAdminModal
                     isOpen={isSuperAdminOpen}
                     onClose={() => setIsSuperAdminOpen(false)}
+                    isMobile={true}
                 />
 
                 {/* Context Menu */}
@@ -496,6 +525,28 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                             >
                                 <Settings size={16} />
                                 Server Settings
+                            </button>
+
+                            <button
+                                onClick={() => handleLeaveServer(contextMenu.serverId)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    textAlign: 'left',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--error)',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: 600,
+                                    borderRadius: '8px'
+                                }}
+                            >
+                                <LogOut size={16} />
+                                Leave Server
                             </button>
                         </motion.div>
                     )}
@@ -605,6 +656,7 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                 isOpen={isBrowserOpen}
                 onClose={() => setIsBrowserOpen(false)}
                 onJoinServer={(serverId) => setActiveServerId(serverId)}
+                isMobile={false}
             />
 
             <SuperAdminModal
@@ -656,6 +708,28 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                         >
                             <Settings size={16} />
                             Server Settings
+                        </button>
+
+                        <button
+                            onClick={() => handleLeaveServer(contextMenu.serverId)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                width: '100%',
+                                padding: '10px 12px',
+                                textAlign: 'left',
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'var(--error)',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: 600,
+                                borderRadius: '8px'
+                            }}
+                        >
+                            <LogOut size={16} />
+                            Leave Server
                         </button>
                     </motion.div>
                 )}

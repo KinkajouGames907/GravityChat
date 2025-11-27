@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, arrayUnion, serverTimestamp, setDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 
-export default function ServerBrowser({ isOpen, onClose, onJoinServer }) {
+export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [inviteCode, setInviteCode] = useState('');
     const [servers, setServers] = useState([]);
@@ -110,12 +110,12 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer }) {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 style={{
-                    width: '100%',
-                    maxWidth: '800px',
-                    height: '80vh',
-                    maxHeight: '600px',
+                    width: isMobile ? '100%' : '100%',
+                    maxWidth: isMobile ? '100%' : '800px',
+                    height: isMobile ? '100%' : '80vh',
+                    maxHeight: isMobile ? 'none' : '600px',
                     backgroundColor: 'var(--bg-primary)',
-                    borderRadius: '16px',
+                    borderRadius: isMobile ? '0' : '16px',
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
@@ -124,23 +124,25 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer }) {
             >
                 {/* Header */}
                 <div style={{
-                    padding: '24px',
+                    padding: isMobile ? '16px' : '24px',
                     borderBottom: '1px solid var(--glass-border)',
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    flexShrink: 0
                 }}>
-                    <h2 style={{ fontSize: '24px', fontWeight: 700 }}>Discover Servers</h2>
+                    <h2 style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 700 }}>Discover Servers</h2>
                     <button onClick={onClose} className="icon-btn"><X size={24} /></button>
                 </div>
 
                 {/* Search & Invite Code */}
                 <div style={{
-                    padding: '24px',
+                    padding: isMobile ? '16px' : '24px',
                     display: 'flex',
                     gap: '16px',
                     backgroundColor: 'var(--bg-secondary)',
-                    flexDirection: 'column' // Stack on mobile if needed, or use media query logic if possible. For now, column is safe or row with wrap.
+                    flexDirection: isMobile ? 'column' : 'row',
+                    flexShrink: 0
                 }}>
                     <div style={{
                         display: 'flex',
@@ -174,7 +176,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer }) {
                             />
                         </div>
 
-                        <form onSubmit={handleJoinByCode} style={{ display: 'flex', gap: '8px' }}>
+                        <form onSubmit={handleJoinByCode} style={{ display: 'flex', gap: '8px', width: isMobile ? '100%' : 'auto' }}>
                             <input
                                 type="text"
                                 placeholder="Invite Code"
@@ -186,7 +188,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer }) {
                                     border: 'none',
                                     backgroundColor: 'var(--bg-tertiary)',
                                     color: 'white',
-                                    width: '120px',
+                                    width: isMobile ? '100%' : '120px',
                                     textAlign: 'center',
                                     textTransform: 'uppercase'
                                 }}
@@ -206,9 +208,9 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer }) {
                 <div style={{
                     flex: 1,
                     overflowY: 'auto',
-                    padding: '24px',
+                    padding: isMobile ? '16px' : '24px',
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                    gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(240px, 1fr))',
                     gap: '16px',
                     alignContent: 'start'
                 }}>
@@ -218,34 +220,58 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer }) {
                             borderRadius: '12px',
                             overflow: 'hidden',
                             display: 'flex',
-                            flexDirection: 'column',
+                            flexDirection: isMobile ? 'row' : 'column',
                             border: '1px solid var(--glass-border)',
                             transition: 'transform 0.2s',
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            minHeight: isMobile ? '80px' : 'auto'
                         }}
                             className="hover:scale-[1.02]"
                         >
                             <div style={{
-                                height: '100px',
+                                height: isMobile ? 'auto' : '100px',
+                                width: isMobile ? '80px' : '100%',
                                 backgroundColor: 'var(--accent)',
                                 backgroundImage: server.icon ? `url(${server.icon})` : 'linear-gradient(45deg, var(--accent), #8b5cf6)',
                                 backgroundSize: 'cover',
-                                backgroundPosition: 'center'
+                                backgroundPosition: 'center',
+                                flexShrink: 0
                             }} />
 
-                            <div style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                            <div style={{
+                                padding: isMobile ? '12px' : '16px',
+                                flex: 1,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: isMobile ? 'center' : 'flex-start'
+                            }}>
                                 <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>{server.name}</h3>
-                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px', flex: 1 }}>
+                                <div style={{
+                                    fontSize: '12px',
+                                    color: 'var(--text-muted)',
+                                    marginBottom: isMobile ? '8px' : '16px',
+                                    flex: 1,
+                                    display: isMobile ? '-webkit-box' : 'block',
+                                    WebkitLineClamp: isMobile ? 2 : 'none',
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden'
+                                }}>
                                     {server.description || "A community server."}
                                 </div>
 
                                 <button
                                     onClick={() => handleJoin(server)}
                                     className="glossy-button"
-                                    style={{ width: '100%', justifyContent: 'center' }}
+                                    style={{
+                                        width: isMobile ? 'auto' : '100%',
+                                        justifyContent: 'center',
+                                        alignSelf: isMobile ? 'flex-start' : 'auto',
+                                        padding: isMobile ? '6px 12px' : '8px 16px',
+                                        fontSize: isMobile ? '13px' : '14px'
+                                    }}
                                     disabled={loading}
                                 >
-                                    Join Server
+                                    Join
                                 </button>
                             </div>
                         </div>

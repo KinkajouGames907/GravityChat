@@ -6,7 +6,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, deleteDoc, orderBy, onSnapshot, getDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 
-export default function SuperAdminModal({ isOpen, onClose }) {
+export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
     const [activeTab, setActiveTab] = useState('reports');
     const [reports, setReports] = useState([]);
     const [teamMembers, setTeamMembers] = useState([]);
@@ -14,6 +14,8 @@ export default function SuperAdminModal({ isOpen, onClose }) {
     const [userSearch, setUserSearch] = useState('');
     const [foundUser, setFoundUser] = useState(null);
     const { currentUser } = useAuth();
+
+    // ... (effects and handlers remain the same)
 
     useEffect(() => {
         if (!isOpen) return;
@@ -157,7 +159,7 @@ export default function SuperAdminModal({ isOpen, onClose }) {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 2000,
-            padding: '20px'
+            padding: isMobile ? 0 : '20px'
         }}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
@@ -167,33 +169,47 @@ export default function SuperAdminModal({ isOpen, onClose }) {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 style={{
-                    width: '900px',
-                    height: '700px',
+                    width: isMobile ? '100%' : '900px',
+                    height: isMobile ? '100%' : '700px',
                     backgroundColor: 'var(--bg-primary)',
-                    borderRadius: '16px',
+                    borderRadius: isMobile ? 0 : '16px',
                     display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
                     overflow: 'hidden',
                     boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                    border: '1px solid var(--glass-border)'
+                    border: isMobile ? 'none' : '1px solid var(--glass-border)'
                 }}
             >
                 {/* Sidebar */}
                 <div style={{
-                    width: '240px',
+                    width: isMobile ? '100%' : '240px',
                     backgroundColor: 'var(--bg-secondary)',
-                    padding: '24px 12px',
+                    padding: isMobile ? '16px' : '24px 12px',
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px'
+                    flexDirection: isMobile ? 'row' : 'column',
+                    gap: isMobile ? '8px' : '4px',
+                    overflowX: isMobile ? 'auto' : 'visible',
+                    borderBottom: isMobile ? '1px solid var(--glass-border)' : 'none',
+                    flexShrink: 0
                 }}>
-                    <div style={{ padding: '0 12px 24px', fontWeight: 800, fontSize: '18px', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Shield size={24} />
-                        SUPER ADMIN
+                    <div style={{
+                        padding: isMobile ? '0 12px 0 0' : '0 12px 24px',
+                        fontWeight: 800,
+                        fontSize: isMobile ? '16px' : '18px',
+                        color: 'var(--accent)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginRight: isMobile ? '16px' : 0,
+                        borderRight: isMobile ? '1px solid var(--glass-border)' : 'none'
+                    }}>
+                        <Shield size={isMobile ? 20 : 24} />
+                        {!isMobile && "SUPER ADMIN"}
                     </div>
                     {[
                         { id: 'reports', label: 'Reports', icon: Flag },
-                        { id: 'users', label: 'User Management', icon: Users },
-                        { id: 'team', label: 'Admin Team', icon: Shield },
+                        { id: 'users', label: 'Users', icon: Users },
+                        { id: 'team', label: 'Team', icon: Shield },
                     ].map(item => (
                         <button
                             key={item.id}
@@ -201,36 +217,43 @@ export default function SuperAdminModal({ isOpen, onClose }) {
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                padding: '12px',
+                                padding: isMobile ? '8px 12px' : '12px',
                                 borderRadius: '8px',
                                 border: 'none',
                                 background: activeTab === item.id ? 'var(--accent-dim)' : 'transparent',
                                 color: activeTab === item.id ? 'var(--accent)' : 'var(--text-secondary)',
                                 cursor: 'pointer',
                                 textAlign: 'left',
-                                fontSize: '15px',
+                                fontSize: '14px',
                                 fontWeight: 600,
-                                transition: 'all 0.2s'
+                                transition: 'all 0.2s',
+                                whiteSpace: 'nowrap'
                             }}
                         >
-                            <item.icon size={20} style={{ marginRight: '12px' }} />
+                            <item.icon size={18} style={{ marginRight: '8px' }} />
                             {item.label}
                         </button>
                     ))}
+
+                    {isMobile && (
+                        <button onClick={onClose} style={{ marginLeft: 'auto', padding: '8px', background: 'transparent', border: 'none', color: 'white' }}>
+                            <X size={24} />
+                        </button>
+                    )}
                 </div>
 
                 {/* Content */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
-                    <div style={{ padding: '24px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h2 style={{ fontSize: '24px', fontWeight: 700 }}>
+                    <div style={{ padding: isMobile ? '16px' : '24px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h2 style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 700 }}>
                             {activeTab === 'reports' && 'Moderation Reports'}
                             {activeTab === 'users' && 'Global User Management'}
                             {activeTab === 'team' && 'Super Admin Team'}
                         </h2>
-                        <button onClick={onClose} className="icon-btn"><X size={24} /></button>
+                        {!isMobile && <button onClick={onClose} className="icon-btn"><X size={24} /></button>}
                     </div>
 
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px' : '24px' }}>
                         {activeTab === 'reports' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 {reports.length === 0 && <div style={{ color: 'var(--text-muted)' }}>No reports found.</div>}

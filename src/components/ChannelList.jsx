@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Hash, Volume2, ChevronDown, Mic, Headphones, Settings, Plus, MessageCircle, Search, X, UserPlus } from 'lucide-react';
+import { Hash, Volume2, ChevronDown, Mic, Headphones, Settings, Plus, MessageCircle, Search, X, UserPlus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, updateDoc, arrayUnion, collection, query, where, getDocs, setDoc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, arrayUnion, collection, query, where, getDocs, setDoc, getDoc, arrayRemove } from 'firebase/firestore';
 import SettingsModal from './SettingsModal';
+import { hasPermission, PERMISSIONS, isServerOwner } from '../utils/permissions';
 
 import channelIcon from '../assets/channel_icon.png';
 import userAvatar from '../assets/user_avatar.png';
 
-const ChannelItem = ({ name, type, active, onClick, index }) => (
+const ChannelItem = ({ name, type, active, onClick, onDelete, canDelete, index }) => (
     <motion.div
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
@@ -24,13 +25,37 @@ const ChannelItem = ({ name, type, active, onClick, index }) => (
             cursor: 'pointer',
             backgroundColor: active ? 'var(--bg-hover)' : 'transparent',
             color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-            transition: 'background-color 0.2s, color 0.2s'
+            transition: 'background-color 0.2s, color 0.2s',
+            position: 'relative',
+            group: 'true' // Helper for hover detection if using CSS, but we'll use JS/CSS class
         }}
-        className="hover:bg-white/5"
+        className="channel-item hover:bg-white/5 group"
         whileHover={{ x: 4 }}
     >
-        {type === 'voice' ? <Volume2 size={18} style={{ marginRight: '6px' }} /> : <img src={channelIcon} style={{ width: '18px', height: '18px', marginRight: '6px' }} alt="#" />}
-        <span style={{ fontWeight: 500, fontSize: '15px' }}>{name}</span>
+        {type === 'voice' ? <Volume2 size={18} style={{ marginRight: '6px' }} /> : <Hash size={18} style={{ marginRight: '6px' }} />}
+        <span style={{ fontWeight: 500, fontSize: '15px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+
+        {canDelete && (
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                }}
+                className="delete-btn opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    padding: '4px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center'
+                }}
+                title="Delete Channel"
+            >
+                <Trash2 size={14} />
+            </button>
+        )}
     </motion.div>
 );
 
@@ -74,7 +99,7 @@ const DMItem = ({ user, active, onClick, index }) => (
     </motion.div>
 );
 
-export default function ChannelList({ activeServerId, activeChannelId, setActiveChannelId, setActiveChannelName, isMobileView }) {
+export default function ChannelList({ activeServerId, activeChannelId, setActiveChannelId, setActiveChannelName, isMobileView, setActiveDmUser }) {
     const { currentUser } = useAuth();
     const [serverData, setServerData] = useState(null);
     const [dms, setDms] = useState([]);
@@ -83,6 +108,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     const [searchResults, setSearchResults] = useState([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
+    const [currentUserMember, setCurrentUserMember] = useState(null);
 
     // ... (rest of the component logic remains the same until return)
 
@@ -137,7 +163,20 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                 }
             }
         });
-        return unsubscribe;
+
+        // Fetch current user member data for permissions
+        const memberUnsubscribe = onSnapshot(doc(db, "servers", activeServerId, "members", currentUser.uid), (doc) => {
+            if (doc.exists()) {
+                setCurrentUserMember(doc.data());
+            } else {
+                setCurrentUserMember(null);
+            }
+        });
+
+        return () => {
+            unsubscribe();
+            memberUnsubscribe();
+        };
     }, [activeServerId, currentUser, isMobileView]);
 
     // Search Users Effect
@@ -206,6 +245,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
 
             setActiveChannelId(dmId);
             setActiveChannelName(targetUser.displayName);
+            if (setActiveDmUser) setActiveDmUser(targetUser);
             setShowDmSearch(false);
             setDmSearchQuery('');
             setSearchResults([]);
@@ -215,6 +255,26 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
             alert("Error starting DM");
         }
     };
+
+    const handleDeleteChannel = async (channel) => {
+        if (!confirm(`Are you sure you want to delete #${channel.name}?`)) return;
+
+        try {
+            await updateDoc(doc(db, "servers", activeServerId), {
+                channels: arrayRemove(channel)
+            });
+            // If we deleted the active channel, reset
+            if (activeChannelId === `${activeServerId}-${channel.name}`) {
+                setActiveChannelId(null);
+                setActiveChannelName(null);
+            }
+        } catch (err) {
+            console.error("Error deleting channel:", err);
+            alert("Failed to delete channel");
+        }
+    };
+
+    const canManageChannels = hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.MANAGE_CHANNELS);
 
     if (activeServerId === 'home') {
         return (
@@ -355,6 +415,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                                 onClick={() => {
                                     setActiveChannelId(dm.id);
                                     setActiveChannelName(dm.otherUser.displayName);
+                                    if (setActiveDmUser) setActiveDmUser(dm.otherUser);
                                 }}
                             />
                         ))}
@@ -459,6 +520,8 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                                     setActiveChannelId(uniqueId);
                                     setActiveChannelName(channel.name);
                                 }}
+                                onDelete={() => handleDeleteChannel(channel)}
+                                canDelete={canManageChannels}
                             />
                         );
                     })}
@@ -481,6 +544,8 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                                     setActiveChannelId(uniqueId);
                                     setActiveChannelName(channel.name);
                                 }}
+                                onDelete={() => handleDeleteChannel(channel)}
+                                canDelete={canManageChannels}
                             />
                         );
                     })}

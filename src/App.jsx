@@ -7,6 +7,9 @@ import ChannelList from './components/ChannelList';
 import ChatArea from './components/ChatArea';
 import FriendList from './components/FriendList';
 import { AnimatePresence, motion } from 'framer-motion';
+import { db } from './lib/firebase';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import CallModal from './components/CallModal';
 
 function PrivateRoute({ children }) {
   const { currentUser } = useAuth();
@@ -21,6 +24,8 @@ function Home() {
   const [activeChannelName, setActiveChannelName] = useState('general');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(null); // { id, isCaller: false }
+  const [activeDmUser, setActiveDmUser] = useState(null);
   const { currentUser } = useAuth();
 
   useEffect(() => {
@@ -31,6 +36,36 @@ function Home() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Listen for incoming calls
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Query for calls where receiver.uid is current user and status is 'offering'
+    // Note: In a real app, we might need a composite index or a better structure.
+    // For now, let's just listen to "calls" and filter client side if needed, or use a simple query.
+    // Ideally: where("receiver.uid", "==", currentUser.uid), where("status", "==", "offering")
+
+    // Since we don't have the index yet, let's try to just listen to recent calls and filter.
+    // Or better, let's just rely on the fact that we can query by receiver.uid if we index it.
+    // Let's assume we can query.
+
+    const q = query(
+      collection(db, "calls"),
+      where("receiver.uid", "==", currentUser.uid),
+      where("status", "==", "offering")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          setIncomingCall({ id: change.doc.id, isCaller: false });
+        }
+      });
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
 
   if (isMobile) {
     return <MobileLayout />;
@@ -86,6 +121,7 @@ function Home() {
           activeChannelId={activeChannelId}
           setActiveChannelId={setActiveChannelId}
           setActiveChannelName={setActiveChannelName}
+          setActiveDmUser={setActiveDmUser}
         />
       </div>
 
@@ -106,6 +142,7 @@ function Home() {
                   const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
                   setActiveChannelId(dmId);
                   setActiveChannelName(user.displayName);
+                  setActiveDmUser(user);
                 }}
               />
             </motion.div>
@@ -122,6 +159,7 @@ function Home() {
                 activeChannelId={activeChannelId}
                 activeChannelName={activeChannelName}
                 activeServerId={activeServerId}
+                activeDmUser={activeDmUser}
                 isMobile={false}
               />
             </motion.div>
