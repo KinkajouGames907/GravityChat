@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import notificationSound from '../assets/sounds/notification.mp3';
 import { createPortal } from 'react-dom';
-import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, X, Phone } from 'lucide-react';
+import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, X, Phone, Loader } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
@@ -13,6 +13,7 @@ import MemberList from './MemberList';
 import Message from './Message';
 import CallModal from './CallModal';
 import UserProfileModal from './UserProfileModal';
+import { useSound } from '../context/SoundContext';
 
 export default function ChatArea({ activeChannelId, activeChannelName, activeServerId, isMobile, onOpenMenu, activeDmUser }) {
     const [messages, setMessages] = useState([]);
@@ -27,8 +28,11 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
     // activeDmUser is now passed as a prop
     const [selectedUserProfile, setSelectedUserProfile] = useState(null);
     const [enlargedImage, setEnlargedImage] = useState(null);
+    const [pendingAttachments, setPendingAttachments] = useState([]);
+    const [isUploading, setIsUploading] = useState(false);
 
     const { currentUser } = useAuth();
+    const { playNotification } = useSound();
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const typingTimeoutRef = useRef(null);
@@ -76,12 +80,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
 
                     if (msg.uid !== currentUser.uid && isRecent) {
                         // Play sound for all new messages from others
-                        try {
-                            const audio = new Audio(notificationSound);
-                            audio.play().catch(e => console.log("Audio play failed:", e));
-                        } catch (e) {
-                            console.error("Audio playback error:", e);
-                        }
+                        playNotification();
 
                         if (document.hidden) {
                             if ('Notification' in window && Notification.permission === 'granted') {
@@ -199,33 +198,56 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
 
     const handleSendMessage = async (e) => {
         e?.preventDefault();
-        if ((!newMessage.trim() && !editingMessage) || !activeChannelId) return;
+        if ((!newMessage.trim() && pendingAttachments.length === 0 && !editingMessage) || !activeChannelId) return;
 
         // Clear typing status
         updateTypingStatus(false);
+        setIsUploading(true);
 
-        if (editingMessage) {
-            // Update existing message
-            await updateDoc(doc(db, "messages", editingMessage.id), {
-                text: newMessage,
-                edited: true,
-                editedAt: serverTimestamp()
-            });
-            setEditingMessage(null);
-        } else {
-            // Send new message
-            await addDoc(collection(db, "messages"), {
-                text: newMessage,
-                createdAt: serverTimestamp(),
-                uid: currentUser.uid,
-                displayName: currentUser.displayName || currentUser.email.split('@')[0],
-                photoURL: currentUser.photoURL,
-                channel: activeChannelId
-            });
+        try {
+            if (editingMessage) {
+                // Update existing message
+                await updateDoc(doc(db, "messages", editingMessage.id), {
+                    text: newMessage,
+                    edited: true,
+                    editedAt: serverTimestamp()
+                });
+                setEditingMessage(null);
+            } else {
+                // 1. Send Text Message (if exists)
+                if (newMessage.trim()) {
+                    await addDoc(collection(db, "messages"), {
+                        text: newMessage,
+                        createdAt: serverTimestamp(),
+                        uid: currentUser.uid,
+                        displayName: currentUser.displayName || currentUser.email.split('@')[0],
+                        photoURL: currentUser.photoURL,
+                        channel: activeChannelId
+                    });
+                }
+
+                // 2. Send Attachments (as separate messages for now)
+                for (const attachment of pendingAttachments) {
+                    await addDoc(collection(db, "messages"), {
+                        attachment: attachment,
+                        createdAt: serverTimestamp(),
+                        uid: currentUser.uid,
+                        displayName: currentUser.displayName || currentUser.email.split('@')[0],
+                        photoURL: currentUser.photoURL,
+                        channel: activeChannelId
+                    });
+                }
+            }
+
+            setNewMessage('');
+            setPendingAttachments([]);
+            inputRef.current?.focus();
+        } catch (error) {
+            console.error("Error sending message:", error);
+            alert("Failed to send message.");
+        } finally {
+            setIsUploading(false);
         }
-
-        setNewMessage('');
-        inputRef.current?.focus();
     };
 
     const handleEmojiSelect = (emoji) => {
@@ -261,16 +283,12 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
             isGif: Boolean(fileData.isGif)
         };
 
-        await addDoc(collection(db, "messages"), {
-            attachment: cleanAttachment,
-            createdAt: serverTimestamp(),
-            uid: currentUser.uid,
-            displayName: currentUser.displayName || currentUser.email.split('@')[0],
-            photoURL: currentUser.photoURL,
-            channel: activeChannelId
-        });
-
+        setPendingAttachments(prev => [...prev, cleanAttachment]);
         setShowFileUpload(false);
+    };
+
+    const removeAttachment = (index) => {
+        setPendingAttachments(prev => prev.filter((_, i) => i !== index));
     };
 
     const handleEditMessage = (message) => {
@@ -504,6 +522,53 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                         borderTop: isMobile ? '1px solid var(--glass-border)' : 'none',
                         zIndex: 10
                     }}>
+                        {/* Staged Attachments */}
+                        {pendingAttachments.length > 0 && (
+                            <div style={{
+                                display: 'flex',
+                                gap: '10px',
+                                padding: '10px',
+                                overflowX: 'auto',
+                                marginBottom: '10px',
+                                backgroundColor: 'var(--bg-secondary)',
+                                borderRadius: '8px',
+                                border: '1px solid var(--glass-border)'
+                            }}>
+                                {pendingAttachments.map((att, index) => (
+                                    <div key={index} style={{ position: 'relative', width: '100px', height: '100px', flexShrink: 0 }}>
+                                        {att.isImage ? (
+                                            <img src={att.data} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} />
+                                        ) : (
+                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px', fontSize: '12px', textAlign: 'center', padding: '4px' }}>
+                                                {att.name}
+                                            </div>
+                                        )}
+                                        <button
+                                            onClick={() => removeAttachment(index)}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '-5px',
+                                                right: '-5px',
+                                                backgroundColor: 'var(--error)',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '50%',
+                                                width: '20px',
+                                                height: '20px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                fontSize: '12px'
+                                            }}
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         {/* Editing Indicator */}
                         {editingMessage && (
                             <motion.div
@@ -626,7 +691,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                 </button>
 
                                 {/* Send Button */}
-                                {(newMessage.trim() || editingMessage) && (
+                                {(newMessage.trim() || editingMessage || pendingAttachments.length > 0) && (
                                     <motion.button
                                         initial={{ scale: 0 }}
                                         animate={{ scale: 1 }}
@@ -636,8 +701,9 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                             color: 'var(--accent)',
                                             backgroundColor: 'var(--accent-dim)'
                                         }}
+                                        disabled={isUploading}
                                     >
-                                        <Send size={20} />
+                                        {isUploading ? <Loader size={20} className="animate-spin" /> : <Send size={20} />}
                                     </motion.button>
                                 )}
 

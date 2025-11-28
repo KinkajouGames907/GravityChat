@@ -356,7 +356,7 @@ export default function MobileLayout() {
                             color: 'var(--text-muted)',
                             fontSize: '12px'
                         }}>
-                            Gravity Alpha 0.0.2
+                            Gravity Alpha 0.0.3
                         </div>
                     </div>
                 );

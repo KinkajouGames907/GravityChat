@@ -64,13 +64,19 @@ export const AuthProvider = ({ children }) => {
 
             const updateStatus = async () => {
                 try {
-                    await setDoc(userRef, {
+                    const dataToUpdate = {
                         lastSeen: serverTimestamp(),
-                        status: 'online',
                         email: currentUser.email,
                         displayName: currentUser.displayName || currentUser.email.split('@')[0],
                         photoURL: currentUser.photoURL
-                    }, { merge: true });
+                    };
+
+                    // Set default status if missing
+                    if (!currentUser.status) {
+                        dataToUpdate.status = 'online';
+                    }
+
+                    await setDoc(userRef, dataToUpdate, { merge: true });
                 } catch (error) {
                     console.error("Error updating presence:", error);
                 }
@@ -108,10 +114,21 @@ export const AuthProvider = ({ children }) => {
         return () => {
             if (interval) clearInterval(interval);
         };
-    }, [currentUser?.uid, currentUser?.displayName, currentUser?.photoURL]);
+    }, [currentUser?.uid, currentUser?.displayName, currentUser?.photoURL, currentUser?.status]);
+
+    const updateUserStatus = async (newStatus) => {
+        if (!currentUser) return;
+        try {
+            const userRef = doc(db, "users", currentUser.uid);
+            await setDoc(userRef, { status: newStatus }, { merge: true });
+        } catch (error) {
+            console.error("Error updating status:", error);
+        }
+    };
 
     const value = {
-        currentUser
+        currentUser,
+        updateUserStatus
     };
 
     return (

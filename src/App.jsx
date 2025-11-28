@@ -1,6 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
-import ringtoneSound from './assets/sounds/ringtone.mp3';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
@@ -21,6 +20,9 @@ import MobileLayout from './components/MobileLayout';
 
 import { PeerProvider, usePeer } from './context/PeerContext';
 
+import { SoundProvider, useSound } from './context/SoundContext';
+import { EmojiProvider } from './context/EmojiContext';
+
 function Home() {
   const [activeServerId, setActiveServerId] = useState('home');
   const [activeChannelId, setActiveChannelId] = useState(null);
@@ -29,21 +31,47 @@ function Home() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [activeDmUser, setActiveDmUser] = useState(null);
   const { currentUser } = useAuth();
-  const { incomingCall, setIncomingCall } = usePeer(); // Use PeerContext
-  const ringtoneRef = useRef(new Audio(ringtoneSound));
+  const { incomingCall, setIncomingCall, activeCall } = usePeer(); // Use PeerContext
+  const [ongoingCall, setOngoingCall] = useState(null);
+
+  const { createRingtone, isMuted } = useSound();
+  const ringtoneRef = useRef(null);
 
   useEffect(() => {
+    ringtoneRef.current = createRingtone();
     ringtoneRef.current.loop = true;
   }, []);
 
+  // Update ringtone mute state dynamically if it changes while ringing
   useEffect(() => {
-    if (incomingCall) {
+    if (ringtoneRef.current) {
+      if (isMuted) {
+        ringtoneRef.current.volume = 0;
+      } else {
+        ringtoneRef.current.volume = 1;
+      }
+    }
+  }, [isMuted]);
+
+  useEffect(() => {
+    if (incomingCall && !isMuted) {
       ringtoneRef.current.play().catch(e => console.log("Ringtone play failed:", e));
     } else {
       ringtoneRef.current.pause();
       ringtoneRef.current.currentTime = 0;
     }
-  }, [incomingCall]);
+  }, [incomingCall, isMuted]);
+
+  useEffect(() => {
+    if (incomingCall) {
+      setOngoingCall(incomingCall);
+    } else if (!activeCall) {
+      setOngoingCall(null);
+    } else {
+      // If activeCall exists and we were tracking a call, update it
+      setOngoingCall(prev => prev ? activeCall : null);
+    }
+  }, [incomingCall, activeCall]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -100,7 +128,7 @@ function Home() {
             zIndex: 1000,
             fontFamily: 'monospace'
           }}>
-            VERY EARLY ALPHA BUILD V0.0.2
+            VERY EARLY ALPHA BUILD V0.0.3
           </div>
 
           {/* Navigation (Sidebar + ChannelList) */}
@@ -163,9 +191,9 @@ function Home() {
       )}
 
       {/* Incoming Call Modal */}
-      {incomingCall && (
+      {ongoingCall && (
         <CallModal
-          call={incomingCall} // Pass the PeerJS call object
+          call={ongoingCall} // Pass the PeerJS call object
           currentUser={currentUser}
           isCaller={false}
           onClose={() => setIncomingCall(null)}
@@ -178,18 +206,22 @@ function Home() {
 function App() {
   return (
     <AuthProvider>
-      <PeerProvider>
-        <Router>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/" element={
-              <PrivateRoute>
-                <Home />
-              </PrivateRoute>
-            } />
-          </Routes>
-        </Router>
-      </PeerProvider>
+      <SoundProvider>
+        <EmojiProvider>
+          <PeerProvider>
+            <Router>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/" element={
+                  <PrivateRoute>
+                    <Home />
+                  </PrivateRoute>
+                } />
+              </Routes>
+            </Router>
+          </PeerProvider>
+        </EmojiProvider>
+      </SoundProvider>
     </AuthProvider>
   );
 }

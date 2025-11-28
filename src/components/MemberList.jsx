@@ -5,6 +5,16 @@ import { db } from '../lib/firebase';
 import { collection, query, onSnapshot, doc, getDoc, orderBy } from 'firebase/firestore';
 import userAvatar from '../assets/user_avatar.png';
 import UserProfileModal from './UserProfileModal';
+import { useEmoji } from '../context/EmojiContext';
+
+const getStatusColor = (status) => {
+    switch (status) {
+        case 'online': return 'var(--success)';
+        case 'idle': return '#eab308';
+        case 'dnd': return 'var(--danger)';
+        default: return 'var(--text-muted)';
+    }
+};
 
 export default function MemberList({ serverId }) {
     const [members, setMembers] = useState([]);
@@ -41,12 +51,17 @@ export default function MemberList({ serverId }) {
                     const userSnap = await getDoc(doc(db, "users", uid));
                     const userData = userSnap.exists() ? userSnap.data() : {};
                     const isOnline = userData.lastSeen && (new Date() - userData.lastSeen.toDate()) < 2 * 60 * 1000;
+                    let userStatus = 'offline';
+                    if (isOnline) {
+                        userStatus = userData.status || 'online';
+                        if (userStatus === 'invisible') userStatus = 'offline';
+                    }
 
                     return {
                         uid,
                         ...userData,
                         ...memberData,
-                        status: isOnline ? 'online' : 'offline'
+                        status: userStatus
                     };
                 } catch (e) {
                     console.error("Error fetching user data:", uid, e);
@@ -93,7 +108,7 @@ export default function MemberList({ serverId }) {
             }
 
             if (!assigned) {
-                if (member.status === 'online') uncategorized.online.push(member);
+                if (member.status !== 'offline') uncategorized.online.push(member);
                 else uncategorized.offline.push(member);
             }
         });
@@ -238,76 +253,105 @@ export default function MemberList({ serverId }) {
     );
 }
 
-const MemberItem = ({ member, index, onClick, roleColor }) => (
-    <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: index * 0.03 }}
-        whileHover={{ backgroundColor: 'var(--bg-hover)' }}
-        onClick={() => onClick(member)}
-        style={{
-            display: 'flex',
-            alignItems: 'center',
-            padding: '8px 12px',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            opacity: member.status === 'offline' ? 0.5 : 1,
-            transition: 'all 0.15s'
-        }}
-    >
-        <div style={{ position: 'relative', marginRight: '12px' }}>
-            <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--bg-tertiary)',
-                backgroundImage: `url(${member.photoURL || userAvatar})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center'
-            }} />
-            {member.status === 'online' && (
-                <div style={{
-                    position: 'absolute',
-                    bottom: '-2px',
-                    right: '-2px',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--success)',
-                    border: '2px solid var(--bg-secondary)'
-                }} />
-            )}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
+const MemberItem = ({ member, index, onClick, roleColor }) => {
+    const { customEmojis } = useEmoji();
+
+    const renderTextWithEmojis = (text) => {
+        if (!text) return null;
+        const parts = text.split(/(:[a-zA-Z0-9_]+:)/g);
+        return parts.map((part, index) => {
+            if (customEmojis[part]) {
+                return (
+                    <img
+                        key={index}
+                        src={customEmojis[part]}
+                        alt={part}
+                        title={part}
+                        style={{
+                            width: '14px',
+                            height: '14px',
+                            verticalAlign: 'middle',
+                            margin: '0 1px',
+                            objectFit: 'contain'
+                        }}
+                    />
+                );
+            }
+            return part;
+        });
+    };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.03 }}
+            whileHover={{ backgroundColor: 'var(--bg-hover)' }}
+            onClick={() => onClick(member)}
+            style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px'
-            }}>
-                <span style={{
-                    fontWeight: 600,
-                    fontSize: '14px',
-                    color: roleColor || (member.status === 'online' ? 'var(--text-primary)' : 'var(--text-secondary)'),
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                }}>
-                    {member.displayName || 'Unknown'}
-                </span>
-                {member.isOwner && <Crown size={12} color="#fbbf24" />}
-                {member.isMod && <Shield size={12} color="var(--accent)" />}
-            </div>
-            {member.customStatus && (
+                padding: '8px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                opacity: member.status === 'offline' ? 0.5 : 1,
+                transition: 'all 0.15s'
+            }}
+        >
+            <div style={{ position: 'relative', marginRight: '12px' }}>
                 <div style={{
-                    fontSize: '11px',
-                    color: 'var(--text-muted)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--bg-tertiary)',
+                    backgroundImage: `url(${member.photoURL || userAvatar})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center'
+                }} />
+                {member.status !== 'offline' && (
+                    <div style={{
+                        position: 'absolute',
+                        bottom: '-2px',
+                        right: '-2px',
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '50%',
+                        backgroundColor: getStatusColor(member.status),
+                        border: '2px solid var(--bg-secondary)'
+                    }} />
+                )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
                 }}>
-                    {member.customStatus}
+                    <span style={{
+                        fontWeight: 600,
+                        fontSize: '14px',
+                        color: roleColor || (member.status === 'online' ? 'var(--text-primary)' : 'var(--text-secondary)'),
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                    }}>
+                        {member.displayName || 'Unknown'}
+                    </span>
+                    {member.isOwner && <Crown size={12} color="#fbbf24" />}
+                    {member.isMod && <Shield size={12} color="var(--accent)" />}
                 </div>
-            )}
-        </div>
-    </motion.div>
-);
+                {member.customStatus && (
+                    <div style={{
+                        fontSize: '11px',
+                        color: 'var(--text-muted)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                    }}>
+                        {renderTextWithEmojis(member.customStatus)}
+                    </div>
+                )}
+            </div>
+        </motion.div>
+    );
+};

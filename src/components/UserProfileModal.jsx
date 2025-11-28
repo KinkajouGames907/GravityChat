@@ -5,9 +5,11 @@ import { X, Calendar, Shield, Crown } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import userAvatar from '../assets/user_avatar.png';
+import { useEmoji } from '../context/EmojiContext';
 
 export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
     const [fullProfile, setFullProfile] = useState(user);
+    const { customEmojis } = useEmoji();
 
     useEffect(() => {
         if (isOpen && user?.uid) {
@@ -38,6 +40,33 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
     // Use fullProfile for rendering, fallback to user prop if needed
     const displayUser = fullProfile || user;
 
+    const renderTextWithEmojis = (text) => {
+        if (!text) return null;
+
+        const parts = text.split(/(:[a-zA-Z0-9_]+:)/g);
+
+        return parts.map((part, index) => {
+            if (customEmojis[part]) {
+                return (
+                    <img
+                        key={index}
+                        src={customEmojis[part]}
+                        alt={part}
+                        title={part}
+                        style={{
+                            width: '20px',
+                            height: '20px',
+                            verticalAlign: 'middle',
+                            margin: '0 1px',
+                            objectFit: 'contain'
+                        }}
+                    />
+                );
+            }
+            return part;
+        });
+    };
+
     return createPortal(
         <AnimatePresence>
             {isOpen && (
@@ -63,7 +92,7 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                         style={{
                             width: isMobile ? '100%' : '600px',
                             maxWidth: '100%',
-                            backgroundColor: 'var(--bg-secondary)',
+                            backgroundColor: displayUser.profileTheme || 'var(--bg-secondary)',
                             borderRadius: isMobile ? '0' : '16px',
                             border: isMobile ? 'none' : '1px solid var(--glass-border)',
                             boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
@@ -74,8 +103,8 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                         {/* Banner */}
                         <div style={{
                             height: '200px',
-                            backgroundColor: displayUser.bannerURL ? 'transparent' : 'var(--accent)',
-                            backgroundImage: displayUser.bannerURL ? `url(${displayUser.bannerURL})` : 'linear-gradient(45deg, var(--accent), #a855f7)',
+                            backgroundColor: displayUser.bannerURL ? 'transparent' : (displayUser.profileAccent || 'var(--accent)'),
+                            backgroundImage: displayUser.bannerURL ? `url(${displayUser.bannerURL})` : `linear-gradient(45deg, ${displayUser.profileAccent || 'var(--accent)'}, #a855f7)`,
                             backgroundSize: 'cover',
                             backgroundPosition: 'center',
                             position: 'relative'
@@ -109,14 +138,33 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                                 width: '120px',
                                 height: '120px',
                                 borderRadius: '50%',
-                                border: '6px solid var(--bg-secondary)',
+                                border: `6px solid ${displayUser.profileTheme || 'var(--bg-secondary)'}`,
                                 backgroundColor: 'var(--bg-tertiary)',
                                 backgroundImage: `url(${displayUser.photoURL || userAvatar})`,
                                 backgroundSize: 'cover',
                                 backgroundPosition: 'center',
                                 marginTop: '-60px',
-                                marginBottom: '16px'
-                            }} />
+                                marginBottom: '16px',
+                                position: 'relative'
+                            }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: '4px',
+                                    right: '4px',
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '50%',
+                                    backgroundColor: {
+                                        online: '#22c55e',
+                                        idle: '#eab308',
+                                        dnd: '#ef4444',
+                                        invisible: '#6b7280',
+                                        offline: '#6b7280'
+                                    }[displayUser.status || 'offline'],
+                                    border: '4px solid var(--bg-secondary)',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                }} />
+                            </div>
 
                             {/* Names */}
                             <div style={{ marginBottom: '20px' }}>
@@ -127,6 +175,24 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                                     @{displayUser.username || displayUser.email?.split('@')[0] || 'unknown'}
                                 </div>
                             </div>
+
+                            {/* Custom Status */}
+                            {displayUser.customStatus && (
+                                <div style={{
+                                    marginBottom: '20px',
+                                    padding: '12px 16px',
+                                    backgroundColor: 'var(--bg-tertiary)',
+                                    borderRadius: '12px',
+                                    border: '1px solid var(--glass-border)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px'
+                                }}>
+                                    <span style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
+                                        {renderTextWithEmojis(displayUser.customStatus)}
+                                    </span>
+                                </div>
+                            )}
 
                             {/* Bio */}
                             {displayUser.bio && (
@@ -139,7 +205,7 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                                 }}>
                                     <h4 style={{ margin: '0 0 8px', fontSize: '12px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>About Me</h4>
                                     <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                                        {displayUser.bio}
+                                        {renderTextWithEmojis(displayUser.bio)}
                                     </p>
                                 </div>
                             )}
@@ -184,9 +250,10 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                             </div>
                         </div>
                     </motion.div>
-                </div>
-            )}
-        </AnimatePresence>,
+                </div >
+            )
+            }
+        </AnimatePresence >,
         document.body
     );
 }

@@ -204,17 +204,21 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         if (!call || !stream) return;
 
         setCallStatus('connected');
-        call.answer(stream);
-        setPeerCall(call); // Ensure we have the reference
+        // Use context function to answer, which clears incomingCall state
+        const acceptedCall = answerCall(stream);
 
-        call.on('stream', (remoteStream) => {
-            setRemoteStream(remoteStream);
-        });
-        call.on('close', () => handleEndCall());
-        call.on('error', (e) => {
-            console.error("Call error:", e);
-            handleEndCall();
-        });
+        if (acceptedCall) {
+            setPeerCall(acceptedCall);
+
+            acceptedCall.on('stream', (remoteStream) => {
+                setRemoteStream(remoteStream);
+            });
+            acceptedCall.on('close', () => handleEndCall());
+            acceptedCall.on('error', (e) => {
+                console.error("Call error:", e);
+                handleEndCall();
+            });
+        }
     };
 
     const switchMediaDevice = async (type, deviceId) => {

@@ -10,6 +10,15 @@ import { hasPermission, PERMISSIONS, isServerOwner } from '../utils/permissions'
 import channelIcon from '../assets/channel_icon.png';
 import userAvatar from '../assets/user_avatar.png';
 
+const getStatusColor = (status) => {
+    switch (status) {
+        case 'online': return 'var(--success)';
+        case 'idle': return '#eab308';
+        case 'dnd': return 'var(--danger)';
+        default: return 'var(--text-muted)';
+    }
+};
+
 const ChannelItem = ({ name, type, active, onClick, onDelete, canDelete, index }) => (
     <motion.div
         initial={{ opacity: 0, x: -20 }}
@@ -95,6 +104,16 @@ const DMItem = ({ user, active, onClick, index }) => (
         }}>
             {!user.photoURL && !userAvatar && user.displayName?.[0].toUpperCase()}
         </div>
+        <div style={{
+            position: 'absolute',
+            bottom: '0',
+            right: '10px',
+            width: '10px',
+            height: '10px',
+            borderRadius: '50%',
+            backgroundColor: getStatusColor(user.status),
+            border: '2px solid var(--bg-secondary)'
+        }} />
         <span style={{ fontWeight: 500, fontSize: '15px' }}>{user.displayName}</span>
     </motion.div>
 );
@@ -131,7 +150,14 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                         try {
                             const userDoc = await getDoc(doc(db, "users", otherUserId));
                             if (userDoc.exists()) {
-                                otherUser = userDoc.data();
+                                const userData = userDoc.data();
+                                const isOnline = userData.lastSeen && (new Date() - userData.lastSeen.toDate()) < 2 * 60 * 1000;
+                                let userStatus = 'offline';
+                                if (isOnline) {
+                                    userStatus = userData.status || 'online';
+                                    if (userStatus === 'invisible') userStatus = 'offline';
+                                }
+                                otherUser = { ...userData, status: userStatus };
                             }
                         } catch (e) {
                             console.error("Error fetching DM user", e);
@@ -453,18 +479,30 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                     alignItems: 'center',
                     gap: '8px'
                 }}>
-                    <div style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
-                        backgroundColor: 'var(--accent)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '14px',
-                        fontWeight: 700
-                    }}>
-                        {currentUser?.email?.[0].toUpperCase() || 'U'}
+                    <div style={{ position: 'relative' }}>
+                        <div style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            backgroundColor: 'var(--accent)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '14px',
+                            fontWeight: 700
+                        }}>
+                            {currentUser?.email?.[0].toUpperCase() || 'U'}
+                        </div>
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '-2px',
+                            right: '-2px',
+                            width: '10px',
+                            height: '10px',
+                            borderRadius: '50%',
+                            backgroundColor: getStatusColor(currentUser?.status || 'online'),
+                            border: '2px solid #0b0d0e'
+                        }} />
                     </div>
                     <div style={{ flex: 1, overflow: 'hidden' }}>
                         <div style={{ fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
@@ -584,18 +622,30 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                 alignItems: 'center',
                 gap: '8px'
             }}>
-                <div style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--accent)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '14px',
-                    fontWeight: 700
-                }}>
-                    {currentUser?.email?.[0].toUpperCase() || 'U'}
+                <div style={{ position: 'relative' }}>
+                    <div style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        backgroundColor: 'var(--accent)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '14px',
+                        fontWeight: 700
+                    }}>
+                        {currentUser?.email?.[0].toUpperCase() || 'U'}
+                    </div>
+                    <div style={{
+                        position: 'absolute',
+                        bottom: '-2px',
+                        right: '-2px',
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        backgroundColor: getStatusColor(currentUser?.status || 'online'),
+                        border: '2px solid #0b0d0e'
+                    }} />
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div style={{ fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', color: userRoleColor || 'var(--text-primary)' }}>

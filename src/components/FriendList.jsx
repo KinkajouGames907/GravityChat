@@ -6,6 +6,24 @@ import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import userAvatar from '../assets/user_avatar.png';
 
+const getStatusColor = (status) => {
+    switch (status) {
+        case 'online': return 'var(--success)';
+        case 'idle': return '#eab308';
+        case 'dnd': return 'var(--danger)';
+        default: return 'var(--text-muted)';
+    }
+};
+
+const getStatusLabel = (status) => {
+    switch (status) {
+        case 'online': return 'Online';
+        case 'idle': return 'Idle';
+        case 'dnd': return 'Do Not Disturb';
+        default: return 'Offline';
+    }
+};
+
 export default function FriendList({ onStartDM }) {
     const { currentUser } = useAuth();
     const [activeTab, setActiveTab] = useState('online');
@@ -39,11 +57,16 @@ export default function FriendList({ onStartDM }) {
                         if (userDoc.exists()) {
                             const userData = userDoc.data();
                             const isOnline = userData.lastSeen && (new Date() - userData.lastSeen.toDate()) < 2 * 60 * 1000;
+                            let userStatus = 'offline';
+                            if (isOnline) {
+                                userStatus = userData.status || 'online';
+                                if (userStatus === 'invisible') userStatus = 'offline';
+                            }
 
                             setFriends(prev => {
                                 const otherFriends = prev.filter(f => f.uid !== friendUid);
                                 if (data.status === 'accepted') {
-                                    return [...otherFriends, { ...userData, uid: friendUid, status: isOnline ? 'online' : 'offline', ...data }];
+                                    return [...otherFriends, { ...userData, uid: friendUid, status: userStatus, ...data }];
                                 }
                                 return otherFriends;
                             });
@@ -51,7 +74,7 @@ export default function FriendList({ onStartDM }) {
                             setPendingRequests(prev => {
                                 const otherRequests = prev.filter(r => r.uid !== friendUid);
                                 if (data.status === 'pending_received') {
-                                    return [...otherRequests, { ...userData, uid: friendUid, status: isOnline ? 'online' : 'offline', ...data }];
+                                    return [...otherRequests, { ...userData, uid: friendUid, status: userStatus, ...data }];
                                 }
                                 return otherRequests;
                             });
@@ -568,7 +591,7 @@ export default function FriendList({ onStartDM }) {
                                                     width: '14px',
                                                     height: '14px',
                                                     borderRadius: '50%',
-                                                    backgroundColor: friend.status === 'online' ? 'var(--success)' : 'var(--text-muted)',
+                                                    backgroundColor: getStatusColor(friend.status),
                                                     border: '3px solid var(--bg-primary)'
                                                 }} />
                                             </div>
@@ -576,9 +599,9 @@ export default function FriendList({ onStartDM }) {
                                                 <div style={{ fontWeight: 600, fontSize: '15px' }}>{friend.displayName}</div>
                                                 <div style={{
                                                     fontSize: '12px',
-                                                    color: friend.status === 'online' ? 'var(--success)' : 'var(--text-muted)'
+                                                    color: getStatusColor(friend.status)
                                                 }}>
-                                                    {friend.status === 'online' ? 'Online' : 'Offline'}
+                                                    {getStatusLabel(friend.status)}
                                                 </div>
                                             </div>
                                         </div>

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Edit3, Trash2, Smile, Flag, Download, FileText } from 'lucide-react';
+import { useEmoji } from '../context/EmojiContext';
 
 export default function Message({ message, currentUser, onEdit, onDelete, onReply, onReport, onViewProfile, onImageClick }) {
     const [showActions, setShowActions] = useState(false);
     const [showReactionPicker, setShowReactionPicker] = useState(false);
+    const { customEmojis } = useEmoji();
 
     const isOwnMessage = message.uid === currentUser.uid;
 
@@ -58,6 +60,34 @@ export default function Message({ message, currentUser, onEdit, onDelete, onRepl
         );
     };
 
+    const renderTextWithEmojis = (text) => {
+        if (!text) return null;
+
+        // Split by potential emoji shortcodes (e.g., :emoji_name:)
+        const parts = text.split(/(:[a-zA-Z0-9_]+:)/g);
+
+        return parts.map((part, index) => {
+            if (customEmojis[part]) {
+                return (
+                    <img
+                        key={index}
+                        src={customEmojis[part]}
+                        alt={part}
+                        title={part}
+                        style={{
+                            width: '24px',
+                            height: '24px',
+                            verticalAlign: 'middle',
+                            margin: '0 2px',
+                            objectFit: 'contain'
+                        }}
+                    />
+                );
+            }
+            return part;
+        });
+    };
+
     return (
         <motion.div
             layout
@@ -108,7 +138,7 @@ export default function Message({ message, currentUser, onEdit, onDelete, onRepl
                 </div>
 
                 <div style={{ color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '1.5' }}>
-                    {message.text}
+                    {renderTextWithEmojis(message.text)}
                 </div>
 
                 {renderAttachment()}

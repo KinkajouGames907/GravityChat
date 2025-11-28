@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Clock, Smile, Heart, ThumbsUp, Coffee, Gamepad2, Flag, Hash, X } from 'lucide-react';
+import { Search, Clock, Smile, Sticker, Gift, X, Star } from 'lucide-react';
+import { useEmoji } from '../context/EmojiContext';
 
 // Comprehensive emoji data organized by category
 const emojiData = {
+    'Custom': [], // Will be populated dynamically
     'Recently Used': [],
     'Smileys & Emotion': [
         '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇',
@@ -76,32 +78,41 @@ const emojiData = {
 };
 
 const categoryIcons = {
+    'Custom': Star,
     'Recently Used': Clock,
     'Smileys & Emotion': Smile,
-    'Gestures & People': ThumbsUp,
-    'Hearts & Love': Heart,
-    'Animals & Nature': Coffee,
-    'Food & Drink': Coffee,
-    'Activities': Gamepad2,
-    'Objects': Hash,
-    'Symbols': Hash,
-    'Flags': Flag
+    'Gestures & People': Sticker,
+    'Hearts & Love': Sticker,
+    'Animals & Nature': Sticker,
+    'Food & Drink': Sticker,
+    'Activities': Sticker,
+    'Objects': Sticker,
+    'Symbols': Sticker,
+    'Flags': Sticker
 };
 
 export default function EmojiPicker({ isOpen, onClose, onEmojiSelect, position = 'top', isMobile }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState('Smileys & Emotion');
-    const [recentEmojis, setRecentEmojis] = useState([]);
+    const [recentEmojis, setRecentEmojis] = useState(() => {
+        const saved = localStorage.getItem('gravity_recent_emojis'); // Changed key to match existing logic
+        return saved ? JSON.parse(saved) : [];
+    });
+    const [currentEmojis, setCurrentEmojis] = useState([]); // Added currentEmojis state
+    const { customEmojis } = useEmoji();
     const pickerRef = useRef(null);
     const searchInputRef = useRef(null);
 
-    // Load recent emojis from localStorage
+    // Update current emojis when category changes
     useEffect(() => {
-        const stored = localStorage.getItem('gravity_recent_emojis');
-        if (stored) {
-            setRecentEmojis(JSON.parse(stored));
+        if (activeCategory === 'Recently Used') {
+            setCurrentEmojis(recentEmojis);
+        } else if (activeCategory === 'Custom') {
+            setCurrentEmojis(Object.keys(customEmojis));
+        } else {
+            setCurrentEmojis(emojiData[activeCategory] || []);
         }
-    }, [isOpen]);
+    }, [activeCategory, recentEmojis, customEmojis]);
 
     // Focus search input when opened
     useEffect(() => {
@@ -154,9 +165,6 @@ export default function EmojiPicker({ isOpen, onClose, onEmojiSelect, position =
     };
 
     const filteredEmojis = getFilteredEmojis();
-    const currentEmojis = activeCategory === 'Recently Used'
-        ? recentEmojis
-        : emojiData[activeCategory] || [];
 
     const pickerContent = (
         <motion.div
@@ -309,7 +317,7 @@ export default function EmojiPicker({ isOpen, onClose, onEmojiSelect, position =
                         }}>
                             {filteredEmojis.map((emoji, index) => (
                                 <motion.button
-                                    key={`${emoji}-${index}`}
+                                    key={`${emoji} -${index} `}
                                     whileHover={{ scale: 1.2, backgroundColor: 'var(--bg-hover)' }}
                                     whileTap={{ scale: 0.9 }}
                                     onClick={() => handleEmojiClick(emoji)}
@@ -350,7 +358,7 @@ export default function EmojiPicker({ isOpen, onClose, onEmojiSelect, position =
                         }}>
                             {currentEmojis.map((emoji, index) => (
                                 <motion.button
-                                    key={`${emoji}-${index}`}
+                                    key={`${emoji} -${index} `}
                                     whileHover={{ scale: 1.2, backgroundColor: 'var(--bg-hover)' }}
                                     whileTap={{ scale: 0.9 }}
                                     onClick={() => handleEmojiClick(emoji)}
@@ -367,8 +375,17 @@ export default function EmojiPicker({ isOpen, onClose, onEmojiSelect, position =
                                         cursor: 'pointer',
                                         transition: 'background 0.15s'
                                     }}
+                                    title={emoji}
                                 >
-                                    {emoji}
+                                    {activeCategory === 'Custom' || (activeCategory === 'Recently Used' && customEmojis[emoji]) ? (
+                                        <img
+                                            src={customEmojis[emoji]}
+                                            alt={emoji}
+                                            style={{ width: '28px', height: '28px', objectFit: 'contain' }}
+                                        />
+                                    ) : (
+                                        emoji
+                                    )}
                                 </motion.button>
                             ))}
                         </div>
@@ -409,7 +426,7 @@ export default function EmojiPicker({ isOpen, onClose, onEmojiSelect, position =
                             padding: '4px',
                             borderRadius: '4px'
                         }}
-                        title={`Skin tone ${i + 1}`}
+                        title={`Skin tone ${i + 1} `}
                     >
                         {emoji}
                     </button>
