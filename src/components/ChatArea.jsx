@@ -180,12 +180,28 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 const file = item.getAsFile();
                 if (file) {
                     const reader = new FileReader();
-                    reader.onload = (event) => {
+                    reader.onload = async (event) => {
+                        const base64Data = event.target.result;
+
+                        // Check for NSFW content
+                        try {
+                            const { loadImage, checkImage } = await import('../utils/imageFilter');
+                            const img = await loadImage(base64Data);
+                            const result = await checkImage(img);
+
+                            if (result.isNSFW) {
+                                alert(`Paste rejected: ${result.reason}`);
+                                return;
+                            }
+                        } catch (filterError) {
+                            console.error("Filter check failed:", filterError);
+                        }
+
                         handleFileSelect({
                             name: "pasted-image.png",
                             type: file.type,
                             size: file.size,
-                            data: event.target.result,
+                            data: base64Data,
                             isImage: true,
                             isGif: false
                         });

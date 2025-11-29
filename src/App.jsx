@@ -22,6 +22,8 @@ import { PeerProvider, usePeer } from './context/PeerContext';
 
 import { SoundProvider, useSound } from './context/SoundContext';
 import { EmojiProvider } from './context/EmojiContext';
+import { ThemeProvider } from './context/ThemeContext';
+import ParticleEffects from './components/ParticleEffects';
 
 function Home() {
   const [activeServerId, setActiveServerId] = useState('home');
@@ -206,22 +208,25 @@ function Home() {
 function App() {
   return (
     <AuthProvider>
-      <SoundProvider>
-        <EmojiProvider>
-          <PeerProvider>
-            <Router>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/" element={
-                  <PrivateRoute>
-                    <Home />
-                  </PrivateRoute>
-                } />
-              </Routes>
-            </Router>
-          </PeerProvider>
-        </EmojiProvider>
-      </SoundProvider>
+      <ThemeProvider>
+        <SoundProvider>
+          <EmojiProvider>
+            <PeerProvider>
+              <Router>
+                <ParticleEffects />
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/" element={
+                    <PrivateRoute>
+                      <Home />
+                    </PrivateRoute>
+                  } />
+                </Routes>
+              </Router>
+            </PeerProvider>
+          </EmojiProvider>
+        </SoundProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }

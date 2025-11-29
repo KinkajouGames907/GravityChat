@@ -105,6 +105,24 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
             reader.onload = async (e) => {
                 const base64Data = e.target.result;
 
+                // Check for NSFW content if it's an image
+                if (selectedFile.type.startsWith('image/')) {
+                    try {
+                        const { loadImage, checkImage } = await import('../utils/imageFilter');
+                        const img = await loadImage(base64Data);
+                        const result = await checkImage(img);
+
+                        if (result.isNSFW) {
+                            setError(`Upload rejected: ${result.reason}`);
+                            setUploading(false);
+                            return;
+                        }
+                    } catch (filterError) {
+                        console.error("Filter check failed:", filterError);
+                        // Optionally block or allow on error. Allowing for now to avoid blocking valid uploads if model fails.
+                    }
+                }
+
                 const fileData = {
                     name: selectedFile.name,
                     type: selectedFile.type,
@@ -390,7 +408,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
                                 {uploading ? (
                                     <>
                                         <Loader size={18} className="animate-spin" />
-                                        Uploading...
+                                        Uploading / Scanning...
                                     </>
                                 ) : (
                                     <>

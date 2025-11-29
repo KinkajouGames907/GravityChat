@@ -14,13 +14,16 @@ import {
     Users,
     Plus,
     Shield,
-    Smile
+    Smile,
+    Palette,
+    Monitor
 } from 'lucide-react';
 import { updateProfile, deleteUser, signOut } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, setDoc, deleteDoc, getFirestore, getDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { useSound } from '../context/SoundContext';
+import ThemeSettings from './ThemeSettings';
 import userAvatar from '../assets/user_avatar.png';
 import { storage } from '../lib/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
@@ -30,6 +33,16 @@ import { customEmojis as hardcodedEmojis } from '../utils/customEmojis'; // Keep
 export default function SettingsModal({ isOpen, onClose, initialTab }) {
     const { currentUser, updateUserStatus } = useAuth();
     const { isMuted, toggleMute } = useSound();
+
+    const tabs = [
+        { id: 'account', label: 'My Account', icon: User },
+        { id: 'profiles', label: 'Profiles', icon: Palette },
+        { id: 'appearance', label: 'Appearance', icon: Monitor },
+        { id: 'emojis', label: 'Custom Emojis', icon: Smile },
+        { id: 'privacy', label: 'Privacy & Safety', icon: Shield },
+        { id: 'danger', label: 'Delete Account', icon: Trash2, danger: true }
+    ];
+
     const [activeTab, setActiveTab] = useState(isOpen ? (initialTab || 'account') : 'account');
     const [displayName, setDisplayName] = useState('');
     const [photoURL, setPhotoURL] = useState('');
@@ -145,14 +158,6 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
-
-    const tabs = [
-        { id: 'account', label: 'My Account', icon: User },
-        { id: 'privacy', label: 'Privacy & Safety', icon: Shield },
-        { id: 'profiles', label: 'Profiles', icon: Users },
-        { id: 'emojis', label: 'Custom Emojis', icon: Smile },
-        { id: 'danger', label: 'Danger Zone', icon: AlertTriangle, danger: true }
-    ];
 
     const handleSignOut = async () => {
         try {
@@ -576,124 +581,6 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                                                         placeholder="What's happening? (e.g., 🎵 Listening to music)"
                                                         style={{
                                                             width: '100%',
-                                                            padding: '14px 16px',
-                                                            backgroundColor: 'var(--bg-primary)',
-                                                            border: '2px solid var(--glass-border)',
-                                                            borderRadius: '12px',
-                                                            color: 'white',
-                                                            fontSize: '15px',
-                                                            outline: 'none',
-                                                            transition: 'all 0.2s'
-                                                        }}
-                                                        onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
-                                                        onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Display Name */}
-                                            <div style={{ marginBottom: '24px' }}>
-                                                <label style={{
-                                                    display: 'block',
-                                                    fontSize: '12px',
-                                                    fontWeight: 700,
-                                                    color: 'var(--text-secondary)',
-                                                    marginBottom: '10px',
-                                                    textTransform: 'uppercase',
-                                                    letterSpacing: '0.5px'
-                                                }}>
-                                                    Display Name
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={displayName}
-                                                    onChange={(e) => setDisplayName(e.target.value)}
-                                                    placeholder="Enter your display name"
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '14px 16px',
-                                                        backgroundColor: 'var(--bg-primary)',
-                                                        border: '2px solid var(--glass-border)',
-                                                        borderRadius: '12px',
-                                                        color: 'white',
-                                                        fontSize: '15px',
-                                                        outline: 'none',
-                                                        transition: 'all 0.2s'
-                                                    }}
-                                                    onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
-                                                    onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
-                                                />
-                                            </div>
-
-                                            {/* Avatar URL */}
-                                            <div style={{ marginBottom: '28px' }}>
-                                                <label style={{
-                                                    display: 'block',
-                                                    fontSize: '12px',
-                                                    fontWeight: 700,
-                                                    color: 'var(--text-secondary)',
-                                                    marginBottom: '10px',
-                                                    textTransform: 'uppercase',
-                                                    letterSpacing: '0.5px'
-                                                }}>
-                                                    Avatar URL
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={photoURL}
-                                                    onChange={(e) => setPhotoURL(e.target.value)}
-                                                    placeholder="https://example.com/avatar.png"
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '14px 16px',
-                                                        backgroundColor: 'var(--bg-primary)',
-                                                        border: '2px solid var(--glass-border)',
-                                                        borderRadius: '12px',
-                                                        color: 'white',
-                                                        fontSize: '15px',
-                                                        outline: 'none',
-                                                        transition: 'all 0.2s'
-                                                    }}
-                                                    onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
-                                                    onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
-                                                />
-                                                <p style={{
-                                                    fontSize: '12px',
-                                                    color: 'var(--text-muted)',
-                                                    marginTop: '8px'
-                                                }}>
-                                                    Enter a direct link to an image file
-                                                </p>
-                                            </div>
-
-                                            {/* Username */}
-                                            <div style={{ marginBottom: '24px' }}>
-                                                <label style={{
-                                                    display: 'block',
-                                                    fontSize: '12px',
-                                                    fontWeight: 700,
-                                                    color: 'var(--text-secondary)',
-                                                    marginBottom: '10px',
-                                                    textTransform: 'uppercase',
-                                                    letterSpacing: '0.5px'
-                                                }}>
-                                                    Username (Unique)
-                                                </label>
-                                                <div style={{ position: 'relative' }}>
-                                                    <span style={{
-                                                        position: 'absolute',
-                                                        left: '16px',
-                                                        top: '14px',
-                                                        color: 'var(--text-muted)',
-                                                        fontSize: '15px'
-                                                    }}>@</span>
-                                                    <input
-                                                        type="text"
-                                                        value={username}
-                                                        onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                                                        placeholder="username"
-                                                        style={{
-                                                            width: '100%',
                                                             padding: '14px 16px 14px 32px',
                                                             backgroundColor: 'var(--bg-primary)',
                                                             border: '2px solid var(--glass-border)',
@@ -1028,6 +915,18 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                                                     Add Another Account
                                                 </button>
                                             </div>
+                                        </motion.div>
+                                    )}
+
+                                    {activeTab === 'appearance' && (
+                                        <motion.div
+                                            key="appearance"
+                                            initial={{ opacity: 0, x: 20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: -20 }}
+                                            transition={{ duration: 0.15 }}
+                                        >
+                                            <ThemeSettings />
                                         </motion.div>
                                     )}
 
