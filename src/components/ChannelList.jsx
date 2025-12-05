@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Hash, Volume2, ChevronDown, Mic, Headphones, Settings, Plus, MessageCircle, Search, X, UserPlus, Trash2 } from 'lucide-react';
+import { Hash, Volume2, ChevronDown, ChevronRight, Mic, Headphones, Settings, Plus, MessageCircle, Search, X, UserPlus, Trash2, Folder, FolderPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, onSnapshot, updateDoc, arrayUnion, collection, query, where, getDocs, setDoc, getDoc, arrayRemove, orderBy } from 'firebase/firestore';
 import SettingsModal from './SettingsModal';
+import VoiceChannel from './VoiceChannel';
 import { hasPermission, PERMISSIONS, isServerOwner } from '../utils/permissions';
 
 import channelIcon from '../assets/channel_icon.png';
@@ -130,6 +131,11 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     const [currentUserMember, setCurrentUserMember] = useState(null);
     const [roles, setRoles] = useState([]);
     const [userRoleColor, setUserRoleColor] = useState(null);
+
+    // New features
+    const [collapsedCategories, setCollapsedCategories] = useState({});
+    const [activeVoiceChannel, setActiveVoiceChannel] = useState(null);
+    const [voiceChannelParticipants, setVoiceChannelParticipants] = useState({});
 
     // ... (rest of the component logic remains the same until return)
 
@@ -324,6 +330,65 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     };
 
     const canManageChannels = hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.MANAGE_CHANNELS);
+
+    // Voice channel handling
+    const handleVoiceChannelClick = (channel) => {
+        if (activeVoiceChannel?.name === channel.name) {
+            // Already in this channel
+            return;
+        }
+        setActiveVoiceChannel({
+            id: `${activeServerId}-${channel.name}`,
+            name: channel.name,
+            serverId: activeServerId
+        });
+    };
+
+    const handleLeaveVoiceChannel = () => {
+        setActiveVoiceChannel(null);
+    };
+
+    // Toggle category collapse
+    const toggleCategory = (categoryName) => {
+        setCollapsedCategories(prev => ({
+            ...prev,
+            [categoryName]: !prev[categoryName]
+        }));
+    };
+
+    // Group channels by category
+    const groupChannelsByCategory = (channels) => {
+        const categorized = {};
+        const uncategorized = [];
+
+        channels?.forEach(channel => {
+            if (channel.category) {
+                if (!categorized[channel.category]) {
+                    categorized[channel.category] = [];
+                }
+                categorized[channel.category].push(channel);
+            } else {
+                uncategorized.push(channel);
+            }
+        });
+
+        return { categorized, uncategorized };
+    };
+
+    const handleCreateCategory = async () => {
+        const categoryName = prompt("Enter category name:");
+        if (!categoryName) return;
+
+        try {
+            const categories = serverData?.categories || [];
+            await updateDoc(doc(db, "servers", activeServerId), {
+                categories: arrayUnion(categoryName.toUpperCase())
+            });
+        } catch (err) {
+            console.error(err);
+            alert("Failed to create category");
+        }
+    };
 
     if (activeServerId === 'home') {
         return (
@@ -588,30 +653,75 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                     })}
                 </AnimatePresence>
 
-                <div style={{ padding: '16px 16px 4px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    Voice Channels
+                <div style={{
+                    padding: '16px 16px 4px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: 'var(--text-muted)',
+                    textTransform: 'uppercase',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                }}>
+                    <span>Voice Channels</span>
                 </div>
                 <AnimatePresence>
                     {serverData?.channels?.filter(c => c.type === 'voice').map((channel, index) => {
                         const uniqueId = `${activeServerId}-${channel.name}`;
+                        const isInVoice = activeVoiceChannel?.id === uniqueId;
                         return (
-                            <ChannelItem
+                            <motion.div
                                 key={channel.name}
-                                index={index}
-                                name={channel.name}
-                                type="voice"
-                                active={activeChannelId === uniqueId}
-                                onClick={() => {
-                                    setActiveChannelId(uniqueId);
-                                    setActiveChannelName(channel.name);
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.05 }}
+                                onClick={() => handleVoiceChannelClick(channel)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    padding: '6px 8px',
+                                    margin: '2px 8px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    backgroundColor: isInVoice ? 'rgba(34, 197, 94, 0.1)' : 'transparent',
+                                    color: isInVoice ? 'var(--success)' : 'var(--text-secondary)',
+                                    transition: 'background-color 0.2s, color 0.2s',
+                                    position: 'relative'
                                 }}
-                                onDelete={() => handleDeleteChannel(channel)}
-                                canDelete={canManageChannels}
-                            />
+                                className="channel-item hover:bg-white/5"
+                                whileHover={{ x: 4 }}
+                            >
+                                <Volume2 size={18} style={{ marginRight: '6px' }} />
+                                <span style={{ fontWeight: 500, fontSize: '15px', flex: 1 }}>{channel.name}</span>
+                                {isInVoice && (
+                                    <span style={{
+                                        fontSize: '10px',
+                                        backgroundColor: 'var(--success)',
+                                        color: 'white',
+                                        padding: '2px 6px',
+                                        borderRadius: '8px',
+                                        fontWeight: 600
+                                    }}>
+                                        CONNECTED
+                                    </span>
+                                )}
+                            </motion.div>
                         );
                     })}
                 </AnimatePresence>
             </div>
+
+            {/* Active Voice Channel Panel */}
+            <AnimatePresence>
+                {activeVoiceChannel && (
+                    <VoiceChannel
+                        channelId={activeVoiceChannel.id}
+                        channelName={activeVoiceChannel.name}
+                        serverId={activeVoiceChannel.serverId}
+                        onLeave={handleLeaveVoiceChannel}
+                    />
+                )}
+            </AnimatePresence>
 
             {/* User User Area */}
             <div style={{

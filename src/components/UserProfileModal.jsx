@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar, Shield, Crown } from 'lucide-react';
+import { X, Calendar, Shield, Crown, Award } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import userAvatar from '../assets/user_avatar.png';
 import { useEmoji } from '../context/EmojiContext';
+import { UserBadgesList } from './UserBadges';
 
 export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
     const [fullProfile, setFullProfile] = useState(user);
@@ -210,7 +211,30 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                                 </div>
                             )}
 
-                            {/* Badges / Roles */}
+                            {/* User Badges */}
+                            <div style={{
+                                marginBottom: '24px',
+                                padding: '16px',
+                                backgroundColor: 'var(--bg-tertiary)',
+                                borderRadius: '8px',
+                                border: '1px solid var(--glass-border)'
+                            }}>
+                                <h4 style={{
+                                    margin: '0 0 12px',
+                                    fontSize: '12px',
+                                    textTransform: 'uppercase',
+                                    color: 'var(--text-muted)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}>
+                                    <Award size={14} />
+                                    Badges
+                                </h4>
+                                <UserBadgesList user={displayUser} />
+                            </div>
+
+                            {/* Roles */}
                             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
                                 {displayUser.isOwner && (
                                     <div style={{

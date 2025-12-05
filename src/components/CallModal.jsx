@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Minimize2, Maximize2, Settings, X, Check } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Minimize2, Maximize2, Settings, X, Check, Monitor, MonitorOff } from 'lucide-react';
 import { usePeer } from '../context/PeerContext';
 
 export default function CallModal({ call, currentUser, isCaller, onClose, remoteUserId }) {
@@ -11,6 +11,9 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOff, setIsVideoOff] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
+    const [callDuration, setCallDuration] = useState(0);
+    const callStartTimeRef = useRef(null);
 
     // Device Settings State
     const [showSettings, setShowSettings] = useState(false);
@@ -110,6 +113,32 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         }
     }, [remoteVolume]);
 
+    // Call duration timer
+    useEffect(() => {
+        if (callStatus === 'connected' && !callStartTimeRef.current) {
+            callStartTimeRef.current = Date.now();
+        }
+
+        if (callStatus === 'connected') {
+            const interval = setInterval(() => {
+                if (callStartTimeRef.current) {
+                    setCallDuration(Math.floor((Date.now() - callStartTimeRef.current) / 1000));
+                }
+            }, 1000);
+            return () => clearInterval(interval);
+        }
+    }, [callStatus]);
+
+    const formatDuration = (seconds) => {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        if (hrs > 0) {
+            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
     // Fetch Devices
     useEffect(() => {
         const getDevices = async () => {
@@ -137,7 +166,8 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     }, []);
 
     useEffect(() => {
-        let currentCall = call;
+        let mediaConnection = call;
+        let localStream = null;
 
         // Get user media with specific devices if selected, otherwise default
         const constraints = {
@@ -147,20 +177,21 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
 
         navigator.mediaDevices.getUserMedia(constraints)
             .then((currentStream) => {
+                localStream = currentStream;
                 setStream(currentStream);
 
                 if (isCaller) {
                     // Initiate call
                     setCallStatus('calling');
-                    currentCall = callUser(remoteUserId, currentStream);
-                    if (currentCall) {
-                        setPeerCall(currentCall); // Save reference
-                        currentCall.on('stream', (remoteStream) => {
-                            setRemoteStream(remoteStream);
+                    mediaConnection = callUser(remoteUserId, currentStream);
+                    if (mediaConnection) {
+                        setPeerCall(mediaConnection);
+                        mediaConnection.on('stream', (remoteMediaStream) => {
+                            setRemoteStream(remoteMediaStream);
                             setCallStatus('connected');
                         });
-                        currentCall.on('close', () => handleEndCall());
-                        currentCall.on('error', (e) => {
+                        mediaConnection.on('close', () => handleEndCall());
+                        mediaConnection.on('error', (e) => {
                             console.error("Call error:", e);
                             handleEndCall();
                         });
@@ -171,8 +202,6 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 } else {
                     // Incoming call - wait for user action
                     setCallStatus('incoming');
-                    // For incoming, 'call' prop IS the MediaConnection, but we don't set it to peerCall yet until answered?
-                    // Actually we can set it, but we haven't answered yet.
                     setPeerCall(call);
                 }
             })
@@ -186,6 +215,8 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                     errorMessage = "Permission denied. Please allow camera/microphone access in your browser settings.";
                 } else if (err.name === 'NotFoundError') {
                     errorMessage = "No camera or microphone found.";
+                } else if (err.name === 'NotReadableError') {
+                    errorMessage = "Camera or microphone is already in use by another application.";
                 }
 
                 alert(errorMessage);
@@ -193,9 +224,9 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             });
 
         return () => {
-            // Cleanup
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+            // Cleanup local stream on unmount
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
             }
         };
     }, []); // Run once on mount. Device switching is handled separately.
@@ -309,6 +340,91 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         }
     };
 
+    const toggleScreenShare = async () => {
+        if (isScreenSharing) {
+            // Stop screen sharing and revert to camera
+            try {
+                const cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: selectedVideoInput ? { deviceId: { exact: selectedVideoInput } } : true,
+                    audio: false
+                });
+                const newVideoTrack = cameraStream.getVideoTracks()[0];
+
+                // Replace track in local stream
+                const oldTrack = stream.getVideoTracks()[0];
+                if (oldTrack) {
+                    stream.removeTrack(oldTrack);
+                    oldTrack.stop();
+                }
+                stream.addTrack(newVideoTrack);
+
+                // Update video element
+                if (myVideo.current) {
+                    myVideo.current.srcObject = stream;
+                }
+
+                // Replace track in peer connection
+                if (peerCall && peerCall.peerConnection) {
+                    const senders = peerCall.peerConnection.getSenders();
+                    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                    if (videoSender) {
+                        videoSender.replaceTrack(newVideoTrack);
+                    }
+                }
+
+                setIsScreenSharing(false);
+                setStream(new MediaStream(stream.getTracks()));
+            } catch (err) {
+                console.error("Error reverting to camera:", err);
+            }
+        } else {
+            // Start screen sharing
+            try {
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { cursor: 'always' },
+                    audio: true
+                });
+                const screenTrack = screenStream.getVideoTracks()[0];
+
+                // Handle when user stops sharing via browser UI
+                screenTrack.onended = () => {
+                    toggleScreenShare();
+                };
+
+                // Replace video track with screen share
+                const oldTrack = stream.getVideoTracks()[0];
+                if (oldTrack) {
+                    stream.removeTrack(oldTrack);
+                    oldTrack.stop();
+                }
+                stream.addTrack(screenTrack);
+
+                // Update video element
+                if (myVideo.current) {
+                    myVideo.current.srcObject = stream;
+                }
+
+                // Replace track in peer connection
+                if (peerCall && peerCall.peerConnection) {
+                    const senders = peerCall.peerConnection.getSenders();
+                    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                    if (videoSender) {
+                        videoSender.replaceTrack(screenTrack);
+                    }
+                }
+
+                setIsScreenSharing(true);
+                setIsVideoOff(false);
+                setStream(new MediaStream(stream.getTracks()));
+            } catch (err) {
+                console.error("Error starting screen share:", err);
+                if (err.name !== 'NotAllowedError') {
+                    alert("Failed to start screen sharing");
+                }
+            }
+        }
+    };
+
     const handleEndCall = () => {
         setCallStatus('ended');
         if (stream) {
@@ -409,6 +525,25 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                     </div>
                 )}
 
+                {/* Call Duration Display */}
+                {callStatus === 'connected' && (
+                    <div style={{
+                        position: 'absolute',
+                        top: '20px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        backgroundColor: 'rgba(0,0,0,0.6)',
+                        backdropFilter: 'blur(10px)',
+                        padding: '8px 16px',
+                        borderRadius: '20px',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        color: 'var(--success)'
+                    }}>
+                        🔴 {formatDuration(callDuration)}
+                    </div>
+                )}
+
                 {/* Local Video (PIP) */}
                 <motion.div
                     drag
@@ -500,8 +635,21 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                                     backgroundColor: isVideoOff ? 'var(--error)' : 'var(--bg-tertiary)',
                                     width: '50px', height: '50px', borderRadius: '50%'
                                 }}
+                                title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
                             >
                                 {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+                            </button>
+
+                            <button
+                                onClick={toggleScreenShare}
+                                className="icon-btn"
+                                style={{
+                                    backgroundColor: isScreenSharing ? 'var(--success)' : 'var(--bg-tertiary)',
+                                    width: '50px', height: '50px', borderRadius: '50%'
+                                }}
+                                title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
+                            >
+                                {isScreenSharing ? <MonitorOff size={24} /> : <Monitor size={24} />}
                             </button>
 
                             <button
@@ -511,6 +659,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                                     backgroundColor: showSettings ? 'var(--accent)' : 'var(--bg-tertiary)',
                                     width: '50px', height: '50px', borderRadius: '50%'
                                 }}
+                                title="Call settings"
                             >
                                 <Settings size={24} />
                             </button>

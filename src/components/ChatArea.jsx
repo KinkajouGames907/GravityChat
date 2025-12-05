@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import notificationSound from '../assets/sounds/notification.mp3';
 import { createPortal } from 'react-dom';
-import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, X, Phone, Loader } from 'lucide-react';
+import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, X, Phone, Loader, Pin, Reply, Clock, ArrowUp, Filter } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, arrayUnion, arrayRemove, getDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import EmojiPicker from './EmojiPicker';
 import GifPicker from './GifPicker';
@@ -13,6 +13,7 @@ import MemberList from './MemberList';
 import Message from './Message';
 import CallModal from './CallModal';
 import UserProfileModal from './UserProfileModal';
+import TypingIndicator from './TypingIndicator';
 import { useSound } from '../context/SoundContext';
 
 export default function ChatArea({ activeChannelId, activeChannelName, activeServerId, isMobile, onOpenMenu, activeDmUser }) {
@@ -25,15 +26,28 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
     const [typingUsers, setTypingUsers] = useState([]);
     const [showMemberList, setShowMemberList] = useState(false);
     const [activeCall, setActiveCall] = useState(null);
-    // activeDmUser is now passed as a prop
     const [selectedUserProfile, setSelectedUserProfile] = useState(null);
     const [enlargedImage, setEnlargedImage] = useState(null);
     const [pendingAttachments, setPendingAttachments] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
 
+    // New features state
+    const [searchQuery, setSearchQuery] = useState('');
+    const [showSearchBar, setShowSearchBar] = useState(false);
+    const [replyingTo, setReplyingTo] = useState(null);
+    const [pinnedMessages, setPinnedMessages] = useState([]);
+    const [showPinnedMessages, setShowPinnedMessages] = useState(false);
+    const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+    // Slowmode state
+    const [slowmodeSeconds, setSlowmodeSeconds] = useState(0);
+    const [cooldownRemaining, setCooldownRemaining] = useState(0);
+    const lastMessageTimeRef = useRef(0);
+
     const { currentUser } = useAuth();
     const { playNotification } = useSound();
     const messagesEndRef = useRef(null);
+    const messagesContainerRef = useRef(null);
     const inputRef = useRef(null);
     const typingTimeoutRef = useRef(null);
 
@@ -131,6 +145,73 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         scrollToBottom();
     }, [messages]);
 
+    // Track scroll position for "scroll to bottom" button
+    useEffect(() => {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        const handleScroll = () => {
+            const { scrollTop, scrollHeight, clientHeight } = container;
+            const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
+            setShowScrollToBottom(!isNearBottom);
+        };
+
+        container.addEventListener('scroll', handleScroll);
+        return () => container.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    // Fetch pinned messages and channel settings (including slowmode)
+    useEffect(() => {
+        if (!activeChannelId) return;
+
+        // Subscribe to channel settings changes
+        const unsubscribe = onSnapshot(doc(db, "channelSettings", activeChannelId), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setPinnedMessages(data.pinnedMessages || []);
+                setSlowmodeSeconds(data.slowmodeSeconds || 0);
+            } else {
+                setPinnedMessages([]);
+                setSlowmodeSeconds(0);
+            }
+        });
+
+        return unsubscribe;
+    }, [activeChannelId]);
+
+    // Slowmode cooldown timer
+    useEffect(() => {
+        if (cooldownRemaining <= 0) return;
+
+        const timer = setInterval(() => {
+            setCooldownRemaining(prev => {
+                if (prev <= 1) {
+                    clearInterval(timer);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, [cooldownRemaining]);
+
+    // Filter messages based on search query
+    const filteredMessages = useMemo(() => {
+        if (!searchQuery.trim()) return messages;
+
+        const query = searchQuery.toLowerCase();
+        return messages.filter(msg =>
+            msg.text?.toLowerCase().includes(query) ||
+            msg.displayName?.toLowerCase().includes(query)
+        );
+    }, [messages, searchQuery]);
+
+    // Get message by ID for reply previews
+    const getMessageById = useCallback((messageId) => {
+        return messages.find(msg => msg.id === messageId);
+    }, [messages]);
+
     const scrollToBottom = () => {
         setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -216,6 +297,11 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         e?.preventDefault();
         if ((!newMessage.trim() && pendingAttachments.length === 0 && !editingMessage) || !activeChannelId) return;
 
+        // Check slowmode cooldown (skip for editing)
+        if (!editingMessage && slowmodeSeconds > 0 && cooldownRemaining > 0) {
+            return;
+        }
+
         // Clear typing status
         updateTypingStatus(false);
         setIsUploading(true);
@@ -230,28 +316,43 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 });
                 setEditingMessage(null);
             } else {
+                // Build base message object
+                const baseMessage = {
+                    createdAt: serverTimestamp(),
+                    uid: currentUser.uid,
+                    displayName: currentUser.displayName || currentUser.email.split('@')[0],
+                    photoURL: currentUser.photoURL,
+                    channel: activeChannelId
+                };
+
+                // Add reply reference if replying
+                if (replyingTo) {
+                    baseMessage.replyTo = replyingTo.id;
+                }
+
                 // 1. Send Text Message (if exists)
                 if (newMessage.trim()) {
                     await addDoc(collection(db, "messages"), {
-                        text: newMessage,
-                        createdAt: serverTimestamp(),
-                        uid: currentUser.uid,
-                        displayName: currentUser.displayName || currentUser.email.split('@')[0],
-                        photoURL: currentUser.photoURL,
-                        channel: activeChannelId
+                        ...baseMessage,
+                        text: newMessage
                     });
                 }
 
                 // 2. Send Attachments (as separate messages for now)
                 for (const attachment of pendingAttachments) {
                     await addDoc(collection(db, "messages"), {
-                        attachment: attachment,
-                        createdAt: serverTimestamp(),
-                        uid: currentUser.uid,
-                        displayName: currentUser.displayName || currentUser.email.split('@')[0],
-                        photoURL: currentUser.photoURL,
-                        channel: activeChannelId
+                        ...baseMessage,
+                        attachment: attachment
                     });
+                }
+
+                // Clear reply
+                setReplyingTo(null);
+
+                // Start slowmode cooldown
+                if (slowmodeSeconds > 0) {
+                    setCooldownRemaining(slowmodeSeconds);
+                    lastMessageTimeRef.current = Date.now();
                 }
             }
 
@@ -352,6 +453,37 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         setActiveCall({ isCaller: true, remoteUserId: activeDmUser.uid });
     };
 
+    // Handle pinning/unpinning messages
+    const handlePinMessage = async (message) => {
+        try {
+            const channelRef = doc(db, "channelSettings", activeChannelId);
+            const isPinned = pinnedMessages.includes(message.id);
+
+            if (isPinned) {
+                await setDoc(channelRef, {
+                    pinnedMessages: arrayRemove(message.id)
+                }, { merge: true });
+            } else {
+                await setDoc(channelRef, {
+                    pinnedMessages: arrayUnion(message.id)
+                }, { merge: true });
+            }
+        } catch (error) {
+            console.error("Error pinning message:", error);
+            alert("Failed to pin message");
+        }
+    };
+
+    // Handle reply to message
+    const handleReply = (message) => {
+        setReplyingTo(message);
+        inputRef.current?.focus();
+    };
+
+    const cancelReply = () => {
+        setReplyingTo(null);
+    };
+
     if (!activeChannelId) {
         return (
             <div style={{
@@ -430,7 +562,39 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 )}
                 {isMobile && <div style={{ flex: 1 }} />}
 
-                <div style={{ display: 'flex', gap: isMobile ? '8px' : '12px', color: 'var(--text-secondary)' }}>
+                <div style={{ display: 'flex', gap: isMobile ? '8px' : '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
+                    {/* Pinned Messages Button */}
+                    {pinnedMessages.length > 0 && (
+                        <button
+                            className="icon-btn"
+                            onClick={() => setShowPinnedMessages(!showPinnedMessages)}
+                            style={{
+                                color: showPinnedMessages ? 'var(--accent)' : 'var(--text-secondary)',
+                                position: 'relative'
+                            }}
+                            title={`${pinnedMessages.length} pinned message${pinnedMessages.length > 1 ? 's' : ''}`}
+                        >
+                            <Pin size={20} />
+                            <span style={{
+                                position: 'absolute',
+                                top: '0',
+                                right: '0',
+                                backgroundColor: 'var(--accent)',
+                                color: 'white',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                borderRadius: '50%',
+                                width: '14px',
+                                height: '14px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                {pinnedMessages.length}
+                            </span>
+                        </button>
+                    )}
+
                     {!isMobile && (
                         <button className="icon-btn" title="Notifications">
                             <Bell size={20} />
@@ -458,26 +622,162 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                         </button>
                     )}
 
-                    {!isMobile && (
-                        <div style={{ position: 'relative' }}>
-                            <input
-                                type="text"
-                                placeholder="Search"
-                                style={{
-                                    background: 'var(--bg-tertiary)',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    padding: '6px 10px 6px 32px',
-                                    color: 'white',
-                                    width: '150px',
-                                    fontSize: '13px'
-                                }}
-                            />
-                            <Search size={14} style={{ position: 'absolute', left: '10px', top: '8px', color: 'var(--text-muted)' }} />
-                        </div>
-                    )}
+                    {/* Search Toggle */}
+                    <button
+                        className="icon-btn"
+                        onClick={() => setShowSearchBar(!showSearchBar)}
+                        style={{ color: showSearchBar ? 'var(--accent)' : 'var(--text-secondary)' }}
+                        title="Search messages"
+                    >
+                        <Search size={20} />
+                    </button>
                 </div>
             </div>
+
+            {/* Search Bar */}
+            <AnimatePresence>
+                {showSearchBar && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        style={{
+                            backgroundColor: 'var(--bg-secondary)',
+                            borderBottom: '1px solid var(--glass-border)',
+                            padding: '12px 16px',
+                            overflow: 'hidden'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                backgroundColor: 'var(--bg-tertiary)',
+                                borderRadius: '8px',
+                                padding: '8px 12px',
+                                border: '1px solid var(--glass-border)'
+                            }}>
+                                <Search size={16} color="var(--text-muted)" />
+                                <input
+                                    type="text"
+                                    placeholder="Search messages in this channel..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    style={{
+                                        flex: 1,
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'white',
+                                        fontSize: '14px',
+                                        marginLeft: '8px',
+                                        outline: 'none'
+                                    }}
+                                    autoFocus
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: 'var(--text-muted)',
+                                            cursor: 'pointer',
+                                            padding: '2px'
+                                        }}
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+                            {searchQuery && (
+                                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                    {filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}
+                                </span>
+                            )}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Pinned Messages Panel */}
+            <AnimatePresence>
+                {showPinnedMessages && pinnedMessages.length > 0 && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        style={{
+                            backgroundColor: 'var(--bg-secondary)',
+                            borderBottom: '1px solid var(--glass-border)',
+                            maxHeight: '200px',
+                            overflowY: 'auto'
+                        }}
+                    >
+                        <div style={{
+                            padding: '12px 16px',
+                            borderBottom: '1px solid var(--glass-border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Pin size={16} color="var(--accent)" />
+                                <span style={{ fontSize: '14px', fontWeight: 600 }}>Pinned Messages</span>
+                            </div>
+                            <button
+                                onClick={() => setShowPinnedMessages(false)}
+                                className="icon-btn"
+                                style={{ padding: '4px' }}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        {messages.filter(msg => pinnedMessages.includes(msg.id)).map(msg => (
+                            <div
+                                key={msg.id}
+                                style={{
+                                    padding: '8px 16px',
+                                    borderBottom: '1px solid var(--glass-border)',
+                                    cursor: 'pointer'
+                                }}
+                                className="hover:bg-white/5"
+                                onClick={() => {
+                                    // Scroll to message
+                                    const element = document.getElementById(`msg-${msg.id}`);
+                                    if (element) {
+                                        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        element.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
+                                        setTimeout(() => {
+                                            element.style.backgroundColor = '';
+                                        }, 2000);
+                                    }
+                                    setShowPinnedMessages(false);
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                    <img
+                                        src={msg.photoURL}
+                                        alt=""
+                                        style={{ width: '20px', height: '20px', borderRadius: '50%' }}
+                                    />
+                                    <span style={{ fontWeight: 600, fontSize: '13px' }}>{msg.displayName}</span>
+                                </div>
+                                <p style={{
+                                    margin: 0,
+                                    fontSize: '13px',
+                                    color: 'var(--text-secondary)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                }}>
+                                    {msg.text || (msg.attachment ? 'Attachment' : 'GIF')}
+                                </p>
+                            </div>
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Call Modal */}
             {activeCall && (
@@ -491,15 +791,18 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
 
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
                 {/* Main Chat Content */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
                     {/* Messages */}
-                    <div style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        paddingBottom: isMobile ? '100px' : '20px',
-                        paddingTop: '10px'
-                    }}>
+                    <div
+                        ref={messagesContainerRef}
+                        style={{
+                            flex: 1,
+                            overflowY: 'auto',
+                            overflowX: 'hidden',
+                            paddingBottom: isMobile ? '100px' : '20px',
+                            paddingTop: '10px'
+                        }}
+                    >
                         {messages.length === 0 && (
                             <div style={{
                                 textAlign: 'center',
@@ -514,22 +817,67 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                             </div>
                         )}
                         <AnimatePresence>
-                            {messages.map((msg) => (
-                                <Message
-                                    key={msg.id}
-                                    message={msg}
-                                    currentUser={currentUser}
-                                    onEdit={setEditingMessage}
-                                    onDelete={handleDeleteMessage}
-                                    onReply={(msg) => setNewMessage(`Replying to: ${msg.text}\n`)}
-                                    onReport={handleReport}
-                                    onViewProfile={(uid, displayName, photoURL) => setSelectedUserProfile({ uid, displayName, photoURL })}
-                                    onImageClick={(url) => setEnlargedImage(url)}
-                                />
+                            {filteredMessages.map((msg) => (
+                                <div key={msg.id} id={`msg-${msg.id}`}>
+                                    <Message
+                                        message={msg}
+                                        currentUser={currentUser}
+                                        onEdit={setEditingMessage}
+                                        onDelete={handleDeleteMessage}
+                                        onReply={handleReply}
+                                        onReport={handleReport}
+                                        onViewProfile={(uid, displayName, photoURL) => setSelectedUserProfile({ uid, displayName, photoURL })}
+                                        onImageClick={(url) => setEnlargedImage(url)}
+                                        onPinMessage={handlePinMessage}
+                                        isPinned={pinnedMessages.includes(msg.id)}
+                                        replyToMessage={msg.replyTo ? getMessageById(msg.replyTo) : null}
+                                    />
+                                </div>
                             ))}
                         </AnimatePresence>
                         <div ref={messagesEndRef} />
                     </div>
+
+                    {/* Scroll to Bottom Button */}
+                    <AnimatePresence>
+                        {showScrollToBottom && (
+                            <motion.button
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 20 }}
+                                onClick={scrollToBottom}
+                                style={{
+                                    position: 'absolute',
+                                    bottom: isMobile ? '180px' : '100px',
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    backgroundColor: 'var(--accent)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '20px',
+                                    padding: '8px 16px',
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                                    zIndex: 10
+                                }}
+                            >
+                                <ArrowUp size={14} style={{ transform: 'rotate(180deg)' }} />
+                                Jump to present
+                            </motion.button>
+                        )}
+                    </AnimatePresence>
+                    {/* Typing Indicator */}
+                    <AnimatePresence>
+                        {typingUsers.length > 0 && (
+                            <TypingIndicator typingUsers={typingUsers} />
+                        )}
+                    </AnimatePresence>
+
                     <div style={{
                         padding: isMobile ? '12px' : '16px',
                         paddingBottom: isMobile ? 'calc(12px + env(safe-area-inset-bottom, 0px))' : '20px',
@@ -538,6 +886,29 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                         borderTop: isMobile ? '1px solid var(--glass-border)' : 'none',
                         zIndex: 10
                     }}>
+                        {/* Slowmode Indicator */}
+                        {slowmodeSeconds > 0 && (
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                padding: '6px 12px',
+                                marginBottom: '8px',
+                                backgroundColor: cooldownRemaining > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                                color: cooldownRemaining > 0 ? 'var(--danger)' : 'var(--accent)'
+                            }}>
+                                <Clock size={14} />
+                                {cooldownRemaining > 0 ? (
+                                    <span>Slowmode enabled: Wait {cooldownRemaining}s before sending another message</span>
+                                ) : (
+                                    <span>Slowmode: {slowmodeSeconds}s between messages</span>
+                                )}
+                            </div>
+                        )}
+
                         {/* Staged Attachments */}
                         {pendingAttachments.length > 0 && (
                             <div style={{
@@ -583,6 +954,56 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     </div>
                                 ))}
                             </div>
+                        )}
+
+                        {/* Reply Indicator */}
+                        {replyingTo && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 12px',
+                                    marginBottom: '8px',
+                                    backgroundColor: 'var(--bg-tertiary)',
+                                    borderRadius: '8px',
+                                    borderLeft: '3px solid var(--accent)'
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, overflow: 'hidden' }}>
+                                    <Reply size={16} color="var(--accent)" />
+                                    <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                        Replying to
+                                    </span>
+                                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent)' }}>
+                                        {replyingTo.displayName}
+                                    </span>
+                                    <span style={{
+                                        fontSize: '13px',
+                                        color: 'var(--text-secondary)',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                    }}>
+                                        {replyingTo.text?.slice(0, 50) || (replyingTo.attachment ? 'Attachment' : 'GIF')}
+                                        {replyingTo.text?.length > 50 ? '...' : ''}
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={cancelReply}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        color: 'var(--text-muted)'
+                                    }}
+                                >
+                                    <X size={16} />
+                                </button>
+                            </motion.div>
                         )}
 
                         {/* Editing Indicator */}
