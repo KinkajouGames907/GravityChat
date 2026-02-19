@@ -19,6 +19,20 @@ export function isServerOwner(user, server) {
     return user?.uid === server?.ownerId;
 }
 
+/**
+ * Checks if a user has access to the Update Center.
+ * Super admins always have access. Other users need to be listed in
+ * the Firestore updateCenter/config.authorizedEmails array.
+ *
+ * @param {object} user - currentUser from AuthContext
+ * @param {string[]} authorizedEmails - The array from Firestore updateCenter/config
+ */
+export function isUpdateCenterUser(user, authorizedEmails = []) {
+    if (!user) return false;
+    if (isSuperAdmin(user)) return true;
+    return Array.isArray(authorizedEmails) && authorizedEmails.includes(user.email);
+}
+
 export function hasPermission(user, server, member, permission) {
     if (!user || !server) return false;
     if (isSuperAdmin(user)) return true;
