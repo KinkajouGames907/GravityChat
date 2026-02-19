@@ -111,8 +111,8 @@ export default function UpdateCenterModal({ isOpen, onClose, isMobile }) {
         if (!file.name.endsWith('.zip') && file.type !== 'application/zip' && file.type !== 'application/x-zip-compressed') {
             return 'Only ZIP files are accepted.';
         }
-        if (file.size > 100 * 1024 * 1024) {
-            return 'ZIP file must be under 100MB.';
+        if (file.size > 500 * 1024 * 1024) {
+            return 'ZIP file must be under 500MB.';
         }
         return '';
     };
@@ -447,7 +447,7 @@ export default function UpdateCenterModal({ isOpen, onClose, isMobile }) {
                                                     {dragActive ? 'Drop ZIP here' : 'Drag & drop your project ZIP'}
                                                 </div>
                                                 <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                                                    or click to browse — ZIP files only, max 100MB
+                                                    or click to browse — ZIP files only, max 500MB
                                                 </div>
                                             </>
                                         )}
