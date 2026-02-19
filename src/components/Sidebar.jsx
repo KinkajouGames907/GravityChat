@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, MessageCircle, Settings, Compass, LogOut } from 'lucide-react';
+import { Plus, MessageCircle, Settings, Compass, LogOut, GitBranch } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot, doc, where, documentId, deleteDoc, updateDoc, arrayRemove, getDoc } from 'firebase/firestore';
@@ -8,7 +8,8 @@ import CreateServerModal from './CreateServerModal';
 import ServerSettingsModal from './ServerSettingsModal';
 import ServerBrowser from './ServerBrowser';
 import SuperAdminModal from './SuperAdminModal';
-import { isSuperAdmin, isServerOwner } from '../utils/permissions';
+import UpdateCenterModal from './UpdateCenterModal';
+import { isSuperAdmin, isServerOwner, isUpdateCenterUser } from '../utils/permissions';
 
 import serverPlaceholder from '../assets/server_placeholder.png';
 
@@ -110,6 +111,8 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
     const [contextMenu, setContextMenu] = useState(null);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [settingsServerId, setSettingsServerId] = useState(null);
+    const [isUpdateCenterOpen, setIsUpdateCenterOpen] = useState(false);
+    const [updateCenterEmails, setUpdateCenterEmails] = useState([]);
     const { currentUser } = useAuth();
 
     useEffect(() => {
@@ -145,6 +148,22 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
         window.addEventListener('click', handleClick);
         return () => window.removeEventListener('click', handleClick);
     }, []);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        const unsubscribe = onSnapshot(
+            doc(db, 'updateCenter', 'config'),
+            (snap) => {
+                if (snap.exists()) {
+                    setUpdateCenterEmails(snap.data().authorizedEmails || []);
+                } else {
+                    setUpdateCenterEmails([]);
+                }
+            },
+            () => setUpdateCenterEmails([])
+        );
+        return () => unsubscribe();
+    }, [currentUser?.uid]);
 
     const handleLeaveServer = async (serverId) => {
         if (!confirm("Are you sure you want to leave this server?")) return;
@@ -255,6 +274,42 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                             </div>
                         </motion.button>
                     )}
+
+                    {isUpdateCenterUser(currentUser, updateCenterEmails) && (
+                        <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsUpdateCenterOpen(true)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '16px',
+                                backgroundColor: 'var(--bg-secondary)',
+                                border: '1px solid var(--glass-border)',
+                                borderRadius: '16px',
+                                cursor: 'pointer',
+                                color: 'var(--text-primary)',
+                                gridColumn: '1 / -1'
+                            }}
+                        >
+                            <div style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <GitBranch size={20} color="white" />
+                            </div>
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 700, fontSize: '14px' }}>Update Center</div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Deploy new version</div>
+                            </div>
+                        </motion.button>
+                    )}
+
                     <motion.button
                         whileTap={{ scale: 0.95 }}
                         onClick={() => setActiveServerId('home')}
@@ -481,6 +536,12 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                     isMobile={true}
                 />
 
+                <UpdateCenterModal
+                    isOpen={isUpdateCenterOpen}
+                    onClose={() => setIsUpdateCenterOpen(false)}
+                    isMobile={true}
+                />
+
                 {/* Context Menu */}
                 <AnimatePresence>
                     {contextMenu && (
@@ -641,6 +702,26 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
                 </ServerIcon>
             )}
 
+            {isUpdateCenterUser(currentUser, updateCenterEmails) && (
+                <ServerIcon
+                    name="Update Center"
+                    active={false}
+                    onClick={() => setIsUpdateCenterOpen(true)}
+                    index={servers.length + 4}
+                >
+                    <div style={{
+                        width: '100%',
+                        height: '100%',
+                        background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <GitBranch size={24} color="white" />
+                    </div>
+                </ServerIcon>
+            )}
+
             <CreateServerModal
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
@@ -662,6 +743,11 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
             <SuperAdminModal
                 isOpen={isSuperAdminOpen}
                 onClose={() => setIsSuperAdminOpen(false)}
+            />
+
+            <UpdateCenterModal
+                isOpen={isUpdateCenterOpen}
+                onClose={() => setIsUpdateCenterOpen(false)}
             />
 
             {/* Context Menu */}
