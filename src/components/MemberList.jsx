@@ -64,7 +64,7 @@ export default function MemberList({ serverId }) {
                         status: userStatus
                     };
                 } catch (e) {
-                    console.error("Error fetching user data:", uid, e);
+                    if (import.meta.env.DEV) console.error("Error fetching user data:", uid, e);
                     return null;
                 }
             });
