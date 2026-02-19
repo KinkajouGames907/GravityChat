@@ -1,73 +1,41 @@
 import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Hash, Users, LogIn } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, arrayUnion, serverTimestamp, setDoc, limit, orderBy, startAfter } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, arrayUnion, serverTimestamp, setDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { SERVERS_PER_PAGE } from '../utils/constants';
 
 export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [inviteCode, setInviteCode] = useState('');
     const [servers, setServers] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [lastDoc, setLastDoc] = useState(null);
-    const [hasMore, setHasMore] = useState(true);
     const { currentUser } = useAuth();
 
     useEffect(() => {
         if (isOpen) {
-            setServers([]);
-            setLastDoc(null);
-            setHasMore(true);
-            fetchServers(true);
+            fetchServers();
         }
     }, [isOpen]);
 
-    const fetchServers = async (reset = false) => {
+    const fetchServers = async () => {
         setLoading(true);
         try {
-            let q;
-            if (searchTerm) {
-                // Use Firestore prefix query on server name
-                q = query(
-                    collection(db, "servers"),
-                    where("name", ">=", searchTerm),
-                    where("name", "<=", searchTerm + '\uf8ff'),
-                    limit(SERVERS_PER_PAGE)
-                );
-            } else {
-                // Paginated fetch with limit
-                const constraints = [
-                    collection(db, "servers"),
-                    orderBy("createdAt", "desc"),
-                    limit(SERVERS_PER_PAGE)
-                ];
-                if (!reset && lastDoc) {
-                    constraints.push(startAfter(lastDoc));
-                }
-                q = query(...constraints);
-            }
+            // In a real app, we'd paginate or use Algolia. For now, fetch all (capped) or search.
+            // If search term is empty, just fetch recent 20.
+            let q = query(collection(db, "servers"));
 
+            // Client-side filtering for search because Firestore simple queries are limited
             const snapshot = await getDocs(q);
-            const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            let results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            // Track pagination state
-            if (snapshot.docs.length < SERVERS_PER_PAGE) {
-                setHasMore(false);
-            }
-            if (snapshot.docs.length > 0) {
-                setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+            if (searchTerm) {
+                results = results.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
             }
 
-            if (reset || searchTerm) {
-                setServers(results);
-            } else {
-                setServers(prev => [...prev, ...results]);
-            }
+            setServers(results);
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error fetching servers:", error);
+            console.error("Error fetching servers:", error);
         } finally {
             setLoading(false);
         }
@@ -91,7 +59,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
             onJoinServer(server.id);
             onClose();
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error joining server:", error);
+            console.error("Error joining server:", error);
             alert("Failed to join server.");
         } finally {
             setLoading(false);
@@ -115,7 +83,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
             const server = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
             await handleJoin(server);
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error joining by code:", error);
+            console.error("Error joining by code:", error);
             alert("Error joining server");
             setLoading(false);
         }
@@ -123,16 +91,15 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
 
     if (!isOpen) return null;
 
-    return createPortal(
+    return (
         <div style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(2,1,8,0.85)',
-            backdropFilter: 'blur(10px)',
+            backgroundColor: 'rgba(0,0,0,0.8)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 3000,
+            zIndex: 1000,
             padding: '20px'
         }}
             onClick={(e) => {
@@ -148,12 +115,11 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
                     height: isMobile ? '100%' : '80vh',
                     maxHeight: isMobile ? 'none' : '600px',
                     backgroundColor: 'var(--bg-primary)',
-                    borderRadius: isMobile ? '0' : '20px',
-                    border: isMobile ? 'none' : '1px solid rgba(168,85,247,0.2)',
+                    borderRadius: isMobile ? '0' : '16px',
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
-                    boxShadow: '0 0 80px rgba(168,85,247,0.12), 0 30px 80px rgba(0,0,0,0.7)'
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
                 }}
             >
                 {/* Header */}
@@ -195,14 +161,9 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
                                 value={searchTerm}
                                 onChange={(e) => {
                                     setSearchTerm(e.target.value);
+                                    // Debounce fetch in real app
                                 }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        setLastDoc(null);
-                                        setHasMore(true);
-                                        fetchServers(true);
-                                    }
-                                }}
+                                onKeyDown={(e) => e.key === 'Enter' && fetchServers()}
                                 style={{
                                     width: '100%',
                                     padding: '12px 12px 12px 40px',
@@ -271,7 +232,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
                                 height: '120px',
                                 width: '100%',
                                 backgroundColor: 'var(--accent)',
-                                backgroundImage: server.icon ? `url(${server.icon})` : 'var(--gradient-primary)',
+                                backgroundImage: server.icon ? `url(${server.icon})` : 'linear-gradient(45deg, var(--accent), #8b5cf6)',
                                 backgroundSize: 'cover',
                                 backgroundPosition: 'center',
                                 flexShrink: 0
@@ -327,22 +288,8 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
                             No servers found.
                         </div>
                     )}
-
-                    {hasMore && servers.length > 0 && !searchTerm && (
-                        <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '20px' }}>
-                            <button
-                                onClick={() => fetchServers(false)}
-                                className="glossy-button"
-                                disabled={loading}
-                                style={{ padding: '10px 24px' }}
-                            >
-                                {loading ? 'Loading...' : 'Load More'}
-                            </button>
-                        </div>
-                    )}
                 </div>
             </motion.div>
-        </div>,
-        document.body
+        </div>
     );
 }

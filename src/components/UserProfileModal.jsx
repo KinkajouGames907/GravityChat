@@ -21,7 +21,7 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                         setFullProfile(prev => ({ ...prev, ...userDoc.data() }));
                     }
                 } catch (error) {
-                    if (import.meta.env.DEV) console.error("Error fetching user profile:", error);
+                    console.error("Error fetching user profile:", error);
                 }
             };
             fetchProfile();
@@ -104,7 +104,7 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                         <div style={{
                             height: '200px',
                             backgroundColor: displayUser.bannerURL ? 'transparent' : (displayUser.profileAccent || 'var(--accent)'),
-                            backgroundImage: displayUser.bannerURL ? `url(${displayUser.bannerURL})` : `linear-gradient(45deg, ${displayUser.profileAccent || 'var(--accent)'}, #ff9f43)`,
+                            backgroundImage: displayUser.bannerURL ? `url(${displayUser.bannerURL})` : `linear-gradient(45deg, ${displayUser.profileAccent || 'var(--accent)'}, #a855f7)`,
                             backgroundSize: 'cover',
                             backgroundPosition: 'center',
                             position: 'relative'

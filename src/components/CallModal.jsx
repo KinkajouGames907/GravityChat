@@ -67,11 +67,11 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             // 3. Play processed audio through hidden audio element
             if (audioOutputRef.current) {
                 audioOutputRef.current.srcObject = destination.stream;
-                audioOutputRef.current.play().catch(e => import.meta.env.DEV && console.error("Error playing processed audio:", e));
+                audioOutputRef.current.play().catch(e => console.error("Error playing processed audio:", e));
 
                 // Apply sink ID if already selected
                 if (selectedAudioOutput && typeof audioOutputRef.current.setSinkId === 'function') {
-                    audioOutputRef.current.setSinkId(selectedAudioOutput).catch(err => import.meta.env.DEV && console.error("Error setting sink ID:", err));
+                    audioOutputRef.current.setSinkId(selectedAudioOutput).catch(err => console.error("Error setting sink ID:", err));
                 }
             }
 
@@ -80,7 +80,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             gainNodeRef.current = gainNode;
 
         } catch (err) {
-            if (import.meta.env.DEV) import.meta.env.DEV && console.error("Web Audio API setup failed:", err);
+            console.error("Web Audio API setup failed:", err);
             // Fallback: Unmute video element if Web Audio fails
             if (userVideo.current) userVideo.current.muted = false;
         }
@@ -95,14 +95,11 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         document.addEventListener('touchstart', resumeAudio);
 
         return () => {
-            // Always clean up event listeners regardless of audioCtx setup success
             document.removeEventListener('click', resumeAudio);
             document.removeEventListener('touchstart', resumeAudio);
             if (audioCtx) {
-                audioCtx.close().catch(() => {});
+                audioCtx.close();
             }
-            audioContextRef.current = null;
-            gainNodeRef.current = null;
         };
     }, [remoteStream]); // Re-run if remote stream changes
 
@@ -129,7 +126,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 if (videoIn) setSelectedVideoInput(videoIn.deviceId);
                 if (audioOut) setSelectedAudioOutput(audioOut.deviceId);
             } catch (error) {
-                import.meta.env.DEV && console.error("Error enumerating devices:", error);
+                console.error("Error enumerating devices:", error);
             }
         };
         getDevices();
@@ -164,7 +161,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                         });
                         currentCall.on('close', () => handleEndCall());
                         currentCall.on('error', (e) => {
-                            import.meta.env.DEV && console.error("Call error:", e);
+                            console.error("Call error:", e);
                             handleEndCall();
                         });
                     } else {
@@ -180,7 +177,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 }
             })
             .catch((err) => {
-                import.meta.env.DEV && console.error("Error accessing media devices:", err);
+                console.error("Error accessing media devices:", err);
                 let errorMessage = "Could not access camera/microphone.";
 
                 if (!window.isSecureContext) {
@@ -218,7 +215,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             });
             acceptedCall.on('close', () => handleEndCall());
             acceptedCall.on('error', (e) => {
-                import.meta.env.DEV && console.error("Call error:", e);
+                console.error("Call error:", e);
                 handleEndCall();
             });
         }
@@ -275,7 +272,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             setStream(new MediaStream(stream.getTracks()));
 
         } catch (err) {
-            import.meta.env.DEV && console.error(`Error switching ${type}:`, err);
+            console.error(`Error switching ${type}:`, err);
             alert(`Failed to switch ${isVideo ? 'camera' : 'microphone'}`);
         }
     };
@@ -287,7 +284,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
             try {
                 await audioOutputRef.current.setSinkId(deviceId);
             } catch (err) {
-                import.meta.env.DEV && console.error("Error setting audio output:", err);
+                console.error("Error setting audio output:", err);
             }
         }
     };

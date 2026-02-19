@@ -64,7 +64,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
             const newTeam = [...teamMembers, { id: userDoc.id, ...userDoc.data(), superAdminTeam: true }];
             setTeamMembers(newTeam);
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error inviting team member:", error);
+            console.error("Error inviting team member:", error);
             alert("Failed to add team member.");
         }
     };
@@ -77,7 +77,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
             });
             setTeamMembers(teamMembers.filter(m => m.id !== userId));
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error removing team member:", error);
+            console.error("Error removing team member:", error);
         }
     };
 
@@ -104,7 +104,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
                 setFoundUser({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
             }
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error searching user:", error);
+            console.error("Error searching user:", error);
         }
     };
 
@@ -121,7 +121,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
             }
             alert(`User ${action}ned successfully.`);
         } catch (error) {
-            if (import.meta.env.DEV) console.error(`Error ${action}ning user:`, error);
+            console.error(`Error ${action}ning user:`, error);
         }
     };
 
@@ -131,7 +131,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
                 status: 'resolved'
             });
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error resolving report:", error);
+            console.error("Error resolving report:", error);
         }
     };
 
@@ -144,7 +144,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
                 alert("Content deleted.");
             }
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error deleting content:", error);
+            console.error("Error deleting content:", error);
         }
     };
 
