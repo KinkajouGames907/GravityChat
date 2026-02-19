@@ -29,9 +29,9 @@ export function SoundProvider({ children }) {
         try {
             const src = theme?.sounds?.notification || notificationSoundFile;
             const audio = new Audio(src);
-            audio.play().catch(e => console.log("Notification play failed:", e));
+            audio.play().catch(e => { if (import.meta.env.DEV) console.log("Notification play failed:", e); });
         } catch (e) {
-            console.error("Error playing notification:", e);
+            if (import.meta.env.DEV) console.error("Error playing notification:", e);
         }
     };
 
@@ -41,10 +41,10 @@ export function SoundProvider({ children }) {
             if (theme?.sounds?.click) {
                 const audio = new Audio(theme.sounds.click);
                 audio.volume = 0.5; // Lower volume for clicks
-                audio.play().catch(e => console.log("Click play failed:", e));
+                audio.play().catch(e => { if (import.meta.env.DEV) console.log("Click play failed:", e); });
             }
         } catch (e) {
-            console.error("Error playing click:", e);
+            if (import.meta.env.DEV) console.error("Error playing click:", e);
         }
     };
 
