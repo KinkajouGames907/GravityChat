@@ -128,6 +128,11 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
     };
 
     const handleGlobalBan = async (userId) => {
+        // Only super admins can globally ban
+        if (!isSuperAdmin(currentUser)) {
+            alert("Only Super Admins can globally ban users.");
+            return;
+        }
         if (!confirm("Globally ban this user from the entire app? They will not be able to log in.")) return;
         try {
             await updateDoc(doc(db, "users", userId), {
@@ -135,8 +140,28 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
             });
             alert("User globally banned.");
         } catch (error) {
-            console.error("Error banning user:", error);
+            if (import.meta.env.DEV) console.error("Error banning user:", error);
             alert("Failed to ban user.");
+        }
+    };
+
+    const handleRegenerateInvite = async () => {
+        if (!confirm("Regenerate invite code? The old code will stop working.")) return;
+        try {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            const values = crypto.getRandomValues(new Uint8Array(10));
+            const newCode = Array.from(values, v => chars[v % chars.length]).join('');
+            await updateDoc(doc(db, "servers", serverId), { inviteCode: newCode });
+        } catch (error) {
+            if (import.meta.env.DEV) console.error("Error regenerating invite:", error);
+            alert("Failed to regenerate invite code.");
+        }
+    };
+
+    const copyInviteCode = () => {
+        if (serverData?.inviteCode) {
+            navigator.clipboard.writeText(serverData.inviteCode);
+            alert("Invite code copied!");
         }
     };
 
@@ -431,7 +456,7 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
 
                         {activeTab === 'overview' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                <div style={{ display: 'flex', gap: '24px' }}>
+                                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                                     <div style={{
                                         width: '100px',
                                         height: '100px',
@@ -445,7 +470,7 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                     }}>
                                         {serverData?.name?.[0]}
                                     </div>
-                                    <div>
+                                    <div style={{ flex: 1, minWidth: '200px' }}>
                                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
                                             SERVER NAME
                                         </label>
@@ -453,26 +478,27 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                             <input
                                                 type="text"
                                                 value={serverData?.name || ''}
-                                                onChange={(e) => setServerData({ ...serverData, name: e.target.value })}
+                                                onChange={(e) => setServerData({ ...serverData, name: e.target.value.slice(0, 100) })}
                                                 style={{
                                                     background: 'var(--bg-tertiary)',
                                                     border: '1px solid var(--glass-border)',
                                                     padding: '10px',
                                                     borderRadius: '4px',
                                                     color: 'white',
-                                                    width: '300px'
+                                                    flex: 1
                                                 }}
                                             />
                                             <button
                                                 onClick={async () => {
                                                     try {
                                                         await updateDoc(doc(db, "servers", serverId), {
-                                                            name: serverData.name
+                                                            name: serverData.name,
+                                                            description: serverData.description || ''
                                                         });
-                                                        alert("Server name updated!");
+                                                        alert("Server updated!");
                                                     } catch (e) {
-                                                        console.error("Error updating name:", e);
-                                                        alert("Failed to update name.");
+                                                        if (import.meta.env.DEV) console.error("Error updating:", e);
+                                                        alert("Failed to update.");
                                                     }
                                                 }}
                                                 className="glossy-button"
@@ -481,6 +507,75 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                                 <Save size={18} />
                                             </button>
                                         </div>
+
+                                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', marginTop: '16px' }}>
+                                            DESCRIPTION
+                                        </label>
+                                        <textarea
+                                            value={serverData?.description || ''}
+                                            onChange={(e) => setServerData({ ...serverData, description: e.target.value.slice(0, 500) })}
+                                            placeholder="Describe your server..."
+                                            rows={3}
+                                            style={{
+                                                background: 'var(--bg-tertiary)',
+                                                border: '1px solid var(--glass-border)',
+                                                padding: '10px',
+                                                borderRadius: '4px',
+                                                color: 'white',
+                                                width: '100%',
+                                                resize: 'none',
+                                                fontFamily: 'inherit',
+                                                fontSize: '14px'
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Invite Code Section */}
+                                <div style={{
+                                    backgroundColor: 'var(--bg-tertiary)',
+                                    padding: '16px',
+                                    borderRadius: '8px'
+                                }}>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '12px' }}>
+                                        INVITE CODE
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                        <code style={{
+                                            flex: 1,
+                                            padding: '12px',
+                                            backgroundColor: 'var(--bg-primary)',
+                                            borderRadius: '4px',
+                                            fontSize: '18px',
+                                            fontWeight: 700,
+                                            letterSpacing: '2px',
+                                            textAlign: 'center',
+                                            color: 'var(--accent)'
+                                        }}>
+                                            {serverData?.inviteCode || 'N/A'}
+                                        </code>
+                                        <button
+                                            onClick={copyInviteCode}
+                                            className="glossy-button"
+                                            style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}
+                                        >
+                                            Copy
+                                        </button>
+                                        <button
+                                            onClick={handleRegenerateInvite}
+                                            style={{
+                                                padding: '10px 16px',
+                                                background: 'transparent',
+                                                border: '1px solid var(--glass-border)',
+                                                borderRadius: '8px',
+                                                color: 'var(--text-secondary)',
+                                                cursor: 'pointer',
+                                                fontWeight: 600,
+                                                whiteSpace: 'nowrap'
+                                            }}
+                                        >
+                                            Regenerate
+                                        </button>
                                     </div>
                                 </div>
 

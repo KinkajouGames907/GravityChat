@@ -6,7 +6,7 @@ import { Image, FileText, Film, X, Upload, Loader, AlertCircle } from 'lucide-re
 // File size limits
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_GIF_SIZE = 15 * 1024 * 1024; // 15MB
-const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB (base64 in Firestore has practical limits)
 
 // Allowed file types
 const ALLOWED_TYPES = {
@@ -118,8 +118,11 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
                             return;
                         }
                     } catch (filterError) {
-                        console.error("Filter check failed:", filterError);
-                        // Optionally block or allow on error. Allowing for now to avoid blocking valid uploads if model fails.
+                        if (import.meta.env.DEV) console.error("Filter check failed:", filterError);
+                        // Block on error to be safe - better to reject a valid upload than allow NSFW content
+                        setError('Image safety check failed. Please try again.');
+                        setUploading(false);
+                        return;
                     }
                 }
 

@@ -157,7 +157,7 @@ export default function FriendList({ onStartDM }) {
             setAddFriendInput('');
 
         } catch (err) {
-            console.error("Error sending friend request:", err);
+            if (import.meta.env.DEV) console.error("Error sending friend request:", err);
             setAddFriendStatus({ type: 'error', message: 'Failed to send request.' });
         }
     };
@@ -167,7 +167,7 @@ export default function FriendList({ onStartDM }) {
             await updateDoc(doc(db, "users", currentUser.uid, "friends", friendUid), { status: 'accepted' });
             await updateDoc(doc(db, "users", friendUid, "friends", currentUser.uid), { status: 'accepted' });
         } catch (err) {
-            console.error("Error accepting request:", err);
+            if (import.meta.env.DEV) console.error("Error accepting request:", err);
         }
     };
 
@@ -176,7 +176,7 @@ export default function FriendList({ onStartDM }) {
             await deleteDoc(doc(db, "users", currentUser.uid, "friends", friendUid));
             await deleteDoc(doc(db, "users", friendUid, "friends", currentUser.uid));
         } catch (err) {
-            console.error("Error rejecting request:", err);
+            if (import.meta.env.DEV) console.error("Error rejecting request:", err);
         }
     };
 
@@ -186,7 +186,7 @@ export default function FriendList({ onStartDM }) {
             await deleteDoc(doc(db, "users", currentUser.uid, "friends", friendUid));
             await deleteDoc(doc(db, "users", friendUid, "friends", currentUser.uid));
         } catch (err) {
-            console.error("Error removing friend:", err);
+            if (import.meta.env.DEV) console.error("Error removing friend:", err);
         }
     };
 
@@ -198,7 +198,7 @@ export default function FriendList({ onStartDM }) {
                 blockedAt: serverTimestamp()
             });
         } catch (err) {
-            console.error("Error blocking user:", err);
+            if (import.meta.env.DEV) console.error("Error blocking user:", err);
         }
     };
 
@@ -223,7 +223,7 @@ export default function FriendList({ onStartDM }) {
     const onlineCount = friends.filter(f => f.status === 'online').length;
 
     return (
-        <div style={{
+        <div className="liquid-panel friend-shell" style={{
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
@@ -232,7 +232,7 @@ export default function FriendList({ onStartDM }) {
             overflow: 'hidden'
         }}>
             {/* Top Bar */}
-            <div style={{
+            <div className="friend-header" style={{
                 minHeight: '56px',
                 borderBottom: '1px solid var(--glass-border)',
                 display: 'flex',
@@ -263,6 +263,7 @@ export default function FriendList({ onStartDM }) {
                         { id: 'addfriend', label: 'Add Friend' }
                     ].map(tab => (
                         <button
+                            className="liquid-chip-button"
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             style={{
@@ -300,7 +301,7 @@ export default function FriendList({ onStartDM }) {
             </div>
 
             {/* Content Area - Scrollable */}
-            <div style={{
+            <div className="friend-content" style={{
                 flex: 1,
                 overflowY: 'auto',
                 overflowX: 'hidden',
@@ -313,7 +314,7 @@ export default function FriendList({ onStartDM }) {
                             marginBottom: '8px',
                             fontSize: '20px',
                             fontWeight: 700,
-                            background: 'linear-gradient(135deg, var(--accent), #8b5cf6)',
+                            background: 'var(--gradient-primary)',
                             WebkitBackgroundClip: 'text',
                             WebkitTextFillColor: 'transparent'
                         }}>

@@ -25,7 +25,7 @@ export default function MobileLayout() {
         try {
             await signOut(auth);
         } catch (error) {
-            console.error('Error signing out:', error);
+            if (import.meta.env.DEV) console.error('Error signing out:', error);
         }
     };
 
@@ -44,7 +44,7 @@ export default function MobileLayout() {
                             marginBottom: '20px',
                             fontSize: '22px',
                             fontWeight: 700,
-                            background: 'linear-gradient(135deg, var(--accent), #8b5cf6)',
+                            background: 'var(--gradient-primary)',
                             WebkitBackgroundClip: 'text',
                             WebkitTextFillColor: 'transparent'
                         }}>
@@ -78,12 +78,12 @@ export default function MobileLayout() {
                                 width: '80px',
                                 height: '80px',
                                 borderRadius: '50%',
-                                background: 'linear-gradient(135deg, var(--accent), #8b5cf6)',
+                                background: 'var(--gradient-primary)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 marginBottom: '24px',
-                                boxShadow: '0 8px 32px rgba(29, 155, 240, 0.3)'
+                                boxShadow: '0 8px 32px var(--accent-glow)'
                             }}>
                                 <span style={{ fontSize: '36px' }}>💬</span>
                             </div>
@@ -367,9 +367,9 @@ export default function MobileLayout() {
     };
 
     return (
-        <div style={{
+        <div className="liquid-panel mobile-shell" style={{
             width: '100vw',
-            height: '100dvh',
+            height: 'var(--app-vh)',
             backgroundColor: 'var(--bg-primary)',
             display: 'flex',
             flexDirection: 'column',
@@ -377,7 +377,7 @@ export default function MobileLayout() {
             position: 'relative'
         }}>
             {/* Main Content Area */}
-            <div style={{
+            <div className="mobile-content-shell" style={{
                 flex: 1,
                 overflow: 'hidden',
                 paddingBottom: activeTab !== 'chat' || !activeChannelId

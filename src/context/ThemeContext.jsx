@@ -11,12 +11,12 @@ export function useTheme() {
 
 const DEFAULT_THEME = {
     colors: {
-        '--bg-primary': '#0a0a0b',
-        '--bg-secondary': '#111113',
-        '--bg-tertiary': '#1a1a1d',
-        '--accent': '#3b82f6',
-        '--text-primary': '#f4f4f5',
-        '--text-secondary': '#a1a1aa'
+        '--bg-primary': '#06040f',
+        '--bg-secondary': '#0b0818',
+        '--bg-tertiary': '#130d22',
+        '--accent': '#a855f7',
+        '--text-primary': '#ede8ff',
+        '--text-secondary': '#b0a0cc'
     },
     animations: {
         enabled: true,
@@ -96,7 +96,7 @@ export function ThemeProvider({ children }) {
         try {
             await setDoc(doc(db, 'users', currentUser.uid, 'settings', 'theme'), newSettings, { merge: true });
         } catch (error) {
-            console.error("Failed to save theme:", error);
+            if (import.meta.env.DEV) console.error("Failed to save theme:", error);
         }
     };
 

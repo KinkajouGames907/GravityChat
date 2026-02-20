@@ -23,7 +23,7 @@ export function EmojiProvider({ children }) {
             setCustomEmojis(emojis);
             setLoading(false);
         }, (error) => {
-            console.error("Error fetching custom emojis:", error);
+            if (import.meta.env.DEV) console.error("Error fetching custom emojis:", error);
             setLoading(false);
         });
 
