@@ -201,7 +201,7 @@ export default function ThemeSettings() {
                                             <button
                                                 onClick={() => {
                                                     const audio = new Audio(localTheme.sounds[type]);
-                                                    audio.play().catch(e => console.error(e));
+                                                    audio.play().catch(e => { if (import.meta.env.DEV) console.error(e); });
                                                 }}
                                                 className="icon-btn"
                                                 title="Preview"

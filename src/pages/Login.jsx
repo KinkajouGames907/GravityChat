@@ -1,209 +1,274 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { MessageCircle, ArrowRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowRight, Loader, MessageCircle, Sparkles, Zap, Shield, Users } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import './Login.css';
+
+async function syncUserToFirestore(user) {
+    const { doc, setDoc, getFirestore, serverTimestamp } = await import('firebase/firestore');
+    const db = getFirestore();
+    await setDoc(
+        doc(db, 'users', user.uid),
+        {
+            uid: user.uid,
+            displayName: user.displayName,
+            email: user.email,
+            photoURL: user.photoURL,
+            lastSeen: serverTimestamp()
+        },
+        { merge: true }
+    );
+}
+
+function getKnownAccounts() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem('knownAccounts') || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+const features = [
+    { icon: Zap, text: 'Motion-rich interface tuned for desktop and mobile.' },
+    { icon: Shield, text: 'Sharp contrast, less visual noise, and a clean accent system.' },
+    { icon: Users, text: 'One-click Google auth with quick account switching.' },
+];
 
 export default function Login() {
     const [error, setError] = useState('');
+    const [isSigningIn, setIsSigningIn] = useState(false);
     const navigate = useNavigate();
+    const knownAccounts = useMemo(() => getKnownAccounts(), []);
 
-    const handleGoogleLogin = async () => {
-        console.log("Attempting Google Sign-In...");
+    const signIn = async (loginHint) => {
+        if (isSigningIn) return;
         setError('');
+        setIsSigningIn(true);
         try {
             const provider = new GoogleAuthProvider();
+            if (loginHint) provider.setCustomParameters({ login_hint: loginHint });
             const result = await signInWithPopup(auth, provider);
-            const user = result.user;
-
-            // Sync user to Firestore
-            const { doc, setDoc, getFirestore } = await import('firebase/firestore');
-            const db = getFirestore();
-            await setDoc(doc(db, "users", user.uid), {
-                uid: user.uid,
-                displayName: user.displayName,
-                email: user.email,
-                photoURL: user.photoURL,
-                lastSeen: new Date()
-            }, { merge: true });
-
-            console.log("Sign-In Successful:", user);
+            await syncUserToFirestore(result.user);
             navigate('/');
         } catch (err) {
-            console.error("Sign-In Error:", err);
-            setError(`Login Failed: ${err.message}`);
+            if (import.meta.env.DEV) console.error('Sign-In Error:', err);
+            if (err?.code === 'auth/popup-closed-by-user') {
+                setError('Sign-in popup closed before authentication completed.');
+            } else {
+                setError(`Login failed: ${err?.message || 'Unknown authentication error.'}`);
+            }
+        } finally {
+            setIsSigningIn(false);
         }
     };
 
     return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100vh',
-            background: 'var(--bg-primary)',
-            position: 'relative',
-            overflow: 'hidden'
-        }}>
-            {/* Background Ambient Glow */}
-            <div style={{
-                position: 'absolute',
-                top: '-20%',
-                left: '-10%',
-                width: '50%',
-                height: '50%',
-                background: 'radial-gradient(circle, rgba(29, 155, 240, 0.15) 0%, transparent 70%)',
-                filter: 'blur(60px)',
-                zIndex: 0
-            }} />
-
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, ease: "easeOut" }}
-                className="glass-panel"
-                style={{
-                    padding: '40px',
-                    borderRadius: '24px',
-                    width: '100%',
-                    maxWidth: '400px',
-                    textAlign: 'center',
-                    zIndex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '24px'
-                }}
-            >
+        <div className="login-shell">
+            {/* Animated backgrounds */}
+            <div className="login-background" aria-hidden="true">
                 <motion.div
-                    initial={{ scale: 0.8 }}
-                    animate={{ scale: 1 }}
-                    transition={{ delay: 0.2, type: "spring" }}
-                    style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}
+                    className="login-aurora login-aurora-one"
+                    animate={{ x: [0, -100, -40, 0], y: [0, 50, -30, 0], scale: [1, 1.15, 0.92, 1] }}
+                    transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
+                />
+                <motion.div
+                    className="login-aurora login-aurora-two"
+                    animate={{ x: [0, 90, 45, 0], y: [0, -35, 28, 0], scale: [1, 0.88, 1.08, 1] }}
+                    transition={{ duration: 24, repeat: Infinity, ease: 'easeInOut' }}
+                />
+                <motion.div
+                    className="login-aurora login-aurora-three"
+                    animate={{ x: [0, 28, -60, 0], y: [0, -55, 25, 0], scale: [1, 1.1, 0.94, 1] }}
+                    transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
+                />
+                <motion.div
+                    className="login-orbit-ring login-ring-one"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 35, repeat: Infinity, ease: 'linear' }}
+                />
+                <motion.div
+                    className="login-orbit-ring login-ring-two"
+                    animate={{ rotate: -360 }}
+                    transition={{ duration: 45, repeat: Infinity, ease: 'linear' }}
+                />
+                <div className="login-grid" />
+            </div>
+            <div className="login-noise" aria-hidden="true" />
+
+            <motion.main
+                className="login-layout"
+                initial={{ opacity: 0, y: 28 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.85, ease: [0.16, 1, 0.3, 1] }}
+            >
+                {/* === HERO SECTION === */}
+                <motion.section
+                    className="login-hero"
+                    initial={{ opacity: 0, x: -28 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1, duration: 0.75, ease: [0.16, 1, 0.3, 1] }}
                 >
-                    <div style={{
-                        background: 'var(--text-primary)',
-                        borderRadius: '50%',
-                        padding: '12px',
-                        display: 'flex',
-                        boxShadow: '0 0 20px rgba(255,255,255,0.2)'
-                    }}>
-                        <MessageCircle size={40} color="black" fill="black" />
+                    <motion.div
+                        className="login-hero-badge"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3, duration: 0.5 }}
+                    >
+                        <Sparkles size={14} />
+                        Fresh visual build — Nebula Dark
+                    </motion.div>
+
+                    <motion.h1
+                        className="login-hero-title"
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.38, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                    >
+                        Gravity Chat,<br />reimagined.
+                    </motion.h1>
+
+                    <motion.p
+                        className="login-hero-subtitle"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.48, duration: 0.6 }}
+                    >
+                        A cleaner, faster, smoother social hub for your servers and DMs — now with a nebula-dark aesthetic.
+                    </motion.p>
+
+                    <div className="login-hero-points">
+                        {features.map(({ icon: Icon, text }, i) => (
+                            <motion.div
+                                key={i}
+                                className="login-hero-point"
+                                initial={{ opacity: 0, x: -18 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: 0.55 + i * 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                            >
+                                <div style={{
+                                    width: '32px', height: '32px',
+                                    borderRadius: '10px',
+                                    background: 'linear-gradient(135deg, rgba(168,85,247,0.3), rgba(236,72,153,0.2))',
+                                    border: '1px solid rgba(168,85,247,0.25)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}>
+                                    <Icon size={16} color="#c084fc" />
+                                </div>
+                                {text}
+                            </motion.div>
+                        ))}
                     </div>
-                </motion.div>
+                </motion.section>
 
-                <div>
-                    <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 800 }}>Gravity</h1>
-                    <p style={{ margin: 0, color: 'var(--text-secondary)' }}>The center of your universe.</p>
-                </div>
-
-                {error && (
-                    <div style={{ color: 'var(--danger)', fontSize: '14px', background: 'rgba(244, 33, 46, 0.1)', padding: '10px', borderRadius: '8px' }}>
-                        {error}
-                    </div>
-                )}
-
-                <button
-                    className="glossy-button"
-                    onClick={handleGoogleLogin}
-                    style={{ width: '100%', justifyContent: 'center' }}
+                {/* === AUTH PANEL === */}
+                <motion.section
+                    className="glass-panel login-panel"
+                    initial={{ opacity: 0, x: 28, scale: 0.97 }}
+                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                    transition={{ delay: 0.18, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
                 >
-                    Sign in with Google <ArrowRight size={18} />
-                </button>
-
-                {/* Quick Login for Known Accounts */}
-                {(() => {
-                    const knownAccounts = JSON.parse(localStorage.getItem('knownAccounts') || '[]');
-                    if (knownAccounts.length === 0) return null;
-
-                    return (
-                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                color: 'var(--text-muted)',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                margin: '10px 0 5px'
-                            }}>
-                                <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
-                                SWITCH ACCOUNTS
-                                <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
-                            </div>
-
-                            {knownAccounts.map(acc => (
-                                <button
-                                    key={acc.uid}
-                                    onClick={async () => {
-                                        console.log("Attempting Quick Login for:", acc.email);
-                                        setError('');
-                                        try {
-                                            const provider = new GoogleAuthProvider();
-                                            provider.setCustomParameters({ login_hint: acc.email });
-                                            const result = await signInWithPopup(auth, provider);
-                                            // Sync user to Firestore
-                                            const user = result.user;
-                                            const { doc, setDoc, getFirestore } = await import('firebase/firestore');
-                                            const db = getFirestore();
-                                            await setDoc(doc(db, "users", user.uid), {
-                                                uid: user.uid,
-                                                displayName: user.displayName,
-                                                email: user.email,
-                                                photoURL: user.photoURL,
-                                                lastSeen: new Date()
-                                            }, { merge: true });
-                                            navigate('/');
-                                        } catch (err) {
-                                            console.error("Quick Login Error:", err);
-                                            setError(`Login Failed: ${err.message}`);
-                                        }
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '12px',
-                                        padding: '10px',
-                                        background: 'rgba(255,255,255,0.05)',
-                                        border: '1px solid var(--glass-border)',
-                                        borderRadius: '12px',
-                                        cursor: 'pointer',
-                                        color: 'white',
-                                        textAlign: 'left',
-                                        transition: 'all 0.2s'
-                                    }}
-                                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                                >
-                                    <div style={{
-                                        width: '32px',
-                                        height: '32px',
-                                        borderRadius: '50%',
-                                        backgroundImage: `url(${acc.photoURL})`,
-                                        backgroundSize: 'cover',
-                                        backgroundPosition: 'center',
-                                        border: '1px solid var(--glass-border)'
-                                    }} />
-                                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {acc.displayName}
-                                        </div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {acc.email}
-                                        </div>
-                                    </div>
-                                    <ArrowRight size={14} color="var(--text-muted)" />
-                                </button>
-                            ))}
+                    {/* Brand */}
+                    <div className="login-brand">
+                        <motion.div
+                            className="login-logo-wrap"
+                            whileHover={{ scale: 1.08, rotate: -4 }}
+                            transition={{ type: 'spring', stiffness: 400, damping: 18 }}
+                        >
+                            <MessageCircle size={30} strokeWidth={2.2} />
+                        </motion.div>
+                        <div>
+                            <h2>Welcome back</h2>
+                            <p>Sign in to continue to Gravity.</p>
                         </div>
-                    );
-                })()}
+                    </div>
 
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
-                    By signing in, you agree to our Terms of Service and Privacy Policy.
-                </p>
-            </motion.div>
+                    {/* Error */}
+                    <AnimatePresence>
+                        {error && (
+                            <motion.div
+                                className="login-error"
+                                initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                            >
+                                {error}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Google Sign-in */}
+                    <motion.button
+                        type="button"
+                        className="glossy-button login-primary-button"
+                        onClick={() => signIn()}
+                        disabled={isSigningIn}
+                        whileHover={isSigningIn ? undefined : { y: -2, scale: 1.01 }}
+                        whileTap={isSigningIn ? undefined : { y: 0, scale: 0.99 }}
+                    >
+                        {isSigningIn ? (
+                            <>
+                                <Loader size={18} className="animate-spin" />
+                                Connecting...
+                            </>
+                        ) : (
+                            <>
+                                Continue with Google
+                                <ArrowRight size={18} />
+                            </>
+                        )}
+                    </motion.button>
+
+                    {/* Quick Account Switch */}
+                    {knownAccounts.length > 0 && (
+                        <div className="login-account-switcher">
+                            <div className="login-switch-title">
+                                <span />
+                                Quick Switch
+                                <span />
+                            </div>
+                            <div className="login-account-list">
+                                {knownAccounts.map((account, index) => (
+                                    <motion.button
+                                        key={account.uid}
+                                        type="button"
+                                        className="login-account-card"
+                                        onClick={() => signIn(account.email)}
+                                        disabled={isSigningIn}
+                                        initial={{ opacity: 0, y: 14 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.38 + index * 0.09, duration: 0.38 }}
+                                        whileHover={isSigningIn ? undefined : { y: -1 }}
+                                    >
+                                        {account.photoURL ? (
+                                            <div
+                                                className="login-account-avatar"
+                                                style={{ backgroundImage: `url(${account.photoURL})` }}
+                                            />
+                                        ) : (
+                                            <div className="login-account-avatar login-account-avatar-fallback">
+                                                {(account.displayName || '?').slice(0, 1).toUpperCase()}
+                                            </div>
+                                        )}
+                                        <div className="login-account-meta">
+                                            <strong>{account.displayName || 'Unknown user'}</strong>
+                                            <span>{account.email}</span>
+                                        </div>
+                                        <ArrowRight size={14} color="var(--text-muted)" />
+                                    </motion.button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <p className="login-footnote">
+                        By signing in, you agree to our Terms of Service and Privacy Policy.
+                    </p>
+                </motion.section>
+            </motion.main>
         </div>
     );
 }

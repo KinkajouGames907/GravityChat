@@ -21,7 +21,7 @@ export function PeerProvider({ children }) {
         const uid = currentUser?.uid;
         if (!uid) return;
 
-        console.log('Initializing PeerJS for user:', uid);
+        if (import.meta.env.DEV) console.log('Initializing PeerJS for user:', uid);
 
         // Initialize Peer with user's UID as the Peer ID
         const newPeer = new Peer(uid, {
@@ -29,28 +29,28 @@ export function PeerProvider({ children }) {
         });
 
         newPeer.on('open', (id) => {
-            console.log('My peer ID is: ' + id);
+            if (import.meta.env.DEV) console.log('My peer ID is: ' + id);
             setMyPeerId(id);
             setPeer(newPeer);
             peerRef.current = newPeer;
         });
 
         newPeer.on('call', (call) => {
-            console.log('Incoming call from:', call.peer);
+            if (import.meta.env.DEV) console.log('Incoming call from:', call.peer);
             setIncomingCall(call);
         });
 
         newPeer.on('error', (err) => {
-            console.error('PeerJS error:', err);
+            if (import.meta.env.DEV) console.error('PeerJS error:', err);
             if (err.type === 'unavailable-id') {
-                console.error(`Peer ID ${uid} is already taken. This might happen if you have multiple tabs open or just reloaded.`);
+                if (import.meta.env.DEV) console.error(`Peer ID ${uid} is already taken. This might happen if you have multiple tabs open or just reloaded.`);
                 // Optional: You could try to append a random suffix if you want to allow multiple tabs, 
                 // but for a 1-on-1 calling app, you usually want one active session per user.
             }
         });
 
         return () => {
-            console.log('Destroying PeerJS instance for user:', uid);
+            if (import.meta.env.DEV) console.log('Destroying PeerJS instance for user:', uid);
             newPeer.destroy();
         };
     }, [currentUser?.uid]);
@@ -68,21 +68,21 @@ export function PeerProvider({ children }) {
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    console.log('Wake Lock active');
+                    if (import.meta.env.DEV) console.log('Wake Lock active');
                 }
             } catch (err) {
-                console.error('Wake Lock failed:', err);
+                if (import.meta.env.DEV) console.error('Wake Lock failed:', err);
             }
         };
 
         // Start everything
         requestWakeLock();
-        audio.play().catch(e => console.log("Silent audio play failed:", e));
+        audio.play().catch(e => { if (import.meta.env.DEV) console.log("Silent audio play failed:", e); });
 
         // Cleanup
         return () => {
             if (wakeLock) {
-                wakeLock.release().then(() => console.log('Wake Lock released'));
+                wakeLock.release().then(() => { if (import.meta.env.DEV) console.log('Wake Lock released'); });
             }
             audio.pause();
             audio.src = "";
@@ -91,7 +91,7 @@ export function PeerProvider({ children }) {
 
     const callUser = (remotePeerId, stream) => {
         if (!peer) {
-            console.error("Peer not initialized");
+            if (import.meta.env.DEV) console.error("Peer not initialized");
             return null;
         }
         const call = peer.call(remotePeerId, stream);
