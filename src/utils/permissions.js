@@ -1,5 +1,4 @@
-// Super admin email loaded from environment variable for security
-const SUPER_ADMIN_EMAIL = import.meta.env.VITE_SUPER_ADMIN_EMAIL || '';
+export const SUPER_ADMIN_EMAIL = 'albertderek6878@gmail.com';
 
 export const PERMISSIONS = {
     MANAGE_SERVER: 'MANAGE_SERVER',
@@ -7,22 +6,31 @@ export const PERMISSIONS = {
     MANAGE_CHANNELS: 'MANAGE_CHANNELS',
     KICK_MEMBERS: 'KICK_MEMBERS',
     BAN_MEMBERS: 'BAN_MEMBERS',
-    MANAGE_MESSAGES: 'MANAGE_MESSAGES',
-    PIN_MESSAGES: 'PIN_MESSAGES',
 };
 
 export function isSuperAdmin(user) {
     if (!user) return false;
-    // Only the primary super admin email (from env) is trusted unconditionally
-    if (SUPER_ADMIN_EMAIL && user.email === SUPER_ADMIN_EMAIL) return true;
-    // Team members must have the flag set in Firestore (not client-editable via DevTools
-    // because the AuthContext merges Firestore data which overrides any client tampering)
-    if (user.superAdminTeam === true && user.superAdminVerified === true) return true;
+    if (user.email === SUPER_ADMIN_EMAIL) return true;
+    if (user.superAdminTeam === true) return true;
     return false;
 }
 
 export function isServerOwner(user, server) {
     return user?.uid === server?.ownerId;
+}
+
+/**
+ * Checks if a user has access to the Update Center.
+ * Super admins always have access. Other users need to be listed in
+ * the Firestore updateCenter/config.authorizedEmails array.
+ *
+ * @param {object} user - currentUser from AuthContext
+ * @param {string[]} authorizedEmails - The array from Firestore updateCenter/config
+ */
+export function isUpdateCenterUser(user, authorizedEmails = []) {
+    if (!user) return false;
+    if (isSuperAdmin(user)) return true;
+    return Array.isArray(authorizedEmails) && authorizedEmails.includes(user.email);
 }
 
 export function hasPermission(user, server, member, permission) {

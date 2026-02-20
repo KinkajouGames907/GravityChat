@@ -64,12 +64,10 @@ export const AuthProvider = ({ children }) => {
 
             const updateStatus = async () => {
                 try {
-                    const displayName = currentUser.displayName || currentUser.email.split('@')[0];
                     const dataToUpdate = {
                         lastSeen: serverTimestamp(),
                         email: currentUser.email,
-                        displayName,
-                        displayNameLower: displayName.toLowerCase(),
+                        displayName: currentUser.displayName || currentUser.email.split('@')[0],
                         photoURL: currentUser.photoURL
                     };
 
@@ -80,7 +78,7 @@ export const AuthProvider = ({ children }) => {
 
                     await setDoc(userRef, dataToUpdate, { merge: true });
                 } catch (error) {
-                    if (import.meta.env.DEV) console.error("Error updating presence:", error);
+                    console.error("Error updating presence:", error);
                 }
             };
 
@@ -109,7 +107,7 @@ export const AuthProvider = ({ children }) => {
 
                 localStorage.setItem('knownAccounts', JSON.stringify(knownAccounts));
             } catch (e) {
-                if (import.meta.env.DEV) console.error("Error saving known accounts:", e);
+                console.error("Error saving known accounts:", e);
             }
         }
 
@@ -124,7 +122,7 @@ export const AuthProvider = ({ children }) => {
             const userRef = doc(db, "users", currentUser.uid);
             await setDoc(userRef, { status: newStatus }, { merge: true });
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error updating status:", error);
+            console.error("Error updating status:", error);
         }
     };
 

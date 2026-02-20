@@ -85,7 +85,7 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
 
     const fetchTrending = async () => {
         try {
-            const apiKey = import.meta.env.VITE_GIPHY_API_KEY || '';
+            const apiKey = 'GlVGYHkr3WSBnllca54iNt0yFbjz7L65'; // Public beta key
             const limit = 20;
             const response = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${apiKey}&limit=${limit}&rating=g`);
             const data = await response.json();
@@ -127,6 +127,13 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isOpen, onClose]);
 
+    // Giphy API Key - Public Beta Key (Subject to rate limits)
+    const GIPHY_API_KEY = 'YOUR_GIPHY_API_KEY'; // Replace with a real key if needed, or use a proxy. 
+    // For this demo, we'll try to use a known public beta key or ask the user to provide one.
+    // Actually, let's use a placeholder and handle the error gracefully or use a public demo key if available.
+    // A common public beta key for Giphy is 'CwXUowF16g801' (often used in tutorials), but it might be revoked.
+    // Let's use a standard fetch structure.
+
     const searchGifs = useCallback(async (query) => {
         if (!query.trim()) {
             setSearchResults([]);
@@ -137,7 +144,7 @@ export default function GifPicker({ isOpen, onClose, onGifSelect, position = 'to
 
         try {
             // Using a public beta key for demonstration. In production, this should be an env variable.
-            const apiKey = import.meta.env.VITE_GIPHY_API_KEY || '';
+            const apiKey = 'GlVGYHkr3WSBnllca54iNt0yFbjz7L65'; // Public beta key
             const limit = 20;
             const response = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(query)}&limit=${limit}&rating=g`);
             const data = await response.json();

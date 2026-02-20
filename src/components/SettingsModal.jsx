@@ -124,7 +124,7 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
             setEmojiName('');
             setMessage({ type: 'success', text: 'Emoji uploaded successfully!' });
         } catch (error) {
-            if (import.meta.env.DEV) console.error("Error uploading emoji:", error);
+            console.error("Error uploading emoji:", error);
             setMessage({ type: 'error', text: 'Failed to upload emoji.' });
         } finally {
             setIsUploadingEmoji(false);
@@ -164,7 +164,7 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
             await signOut(auth);
             onClose();
         } catch (error) {
-            if (import.meta.env.DEV) console.error('Error signing out:', error);
+            console.error('Error signing out:', error);
             setMessage({ type: 'error', text: 'Failed to sign out' });
         }
     };
@@ -222,7 +222,7 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
             setMessage({ type: 'success', text: 'Profile updated successfully!' });
             setTimeout(() => setMessage(null), 3000);
         } catch (error) {
-            if (import.meta.env.DEV) console.error('Error updating profile:', error);
+            console.error('Error updating profile:', error);
             setMessage({ type: 'error', text: 'Failed to update profile' });
         } finally {
             setIsLoading(false);
@@ -242,7 +242,7 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
             await deleteUser(user);
             onClose();
         } catch (error) {
-            if (import.meta.env.DEV) console.error('Error deleting account:', error);
+            console.error('Error deleting account:', error);
             setMessage({ type: 'error', text: 'Failed to delete account. You may need to re-login first.' });
         } finally {
             setIsLoading(false);
