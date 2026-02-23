@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import notificationSound from '../assets/sounds/notification.mp3';
 import { createPortal } from 'react-dom';
-import { Hash, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, X, Phone, Loader, Pin, Reply, CornerUpRight } from 'lucide-react';
+import { Hash, Volume2, Bell, Users, Search, Plus, Gift, Smile, Send, Menu, Edit3, X, Phone, Loader, Pin, Reply, CornerUpRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { resolveAvatarUrl } from '../utils/avatarUrl';
+import { createFallbackMediaStream } from '../utils/mediaFallback';
 
 // Particle burst when sending a message
 const PARTICLE_COLORS = ['#a855f7', '#ec4899', '#f9a8d4', '#c084fc', '#ffffff', '#7c3aed', '#f0abfc'];
@@ -54,6 +56,48 @@ function buildBurst(cx, cy) {
     });
     return { id: Date.now() + Math.random(), cx, cy, particles };
 }
+
+function VoiceParticipantAvatar({ participant }) {
+    const [avatarError, setAvatarError] = useState(false);
+    const resolvedPhotoURL = resolveAvatarUrl(participant?.photoURL);
+    const hasPhoto = !!resolvedPhotoURL && !avatarError;
+    const initial = (participant?.displayName || participant?.email || 'U').trim().charAt(0).toUpperCase();
+
+    useEffect(() => {
+        setAvatarError(false);
+    }, [resolvedPhotoURL]);
+
+    return (
+        <div style={{
+            width: '28px',
+            height: '28px',
+            borderRadius: '50%',
+            background: hasPhoto ? 'var(--bg-tertiary)' : 'linear-gradient(135deg, #2f343c, #6b7280)',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-primary)',
+            fontSize: '12px',
+            fontWeight: 700,
+            flexShrink: 0,
+            border: '1px solid rgba(255,255,255,0.12)',
+        }}>
+            {hasPhoto ? (
+                <img
+                    src={resolvedPhotoURL}
+                    alt={participant.displayName || 'User'}
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarError(true)}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+            ) : (
+                initial || 'U'
+            )}
+        </div>
+    );
+}
+
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, getDoc, getDocs, limit } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
@@ -64,12 +108,16 @@ import MemberList from './MemberList';
 import Message from './Message';
 import CallModal from './CallModal';
 import UserProfileModal from './UserProfileModal';
+import SettingsModal from './SettingsModal';
 import ConfirmDialog from './ConfirmDialog';
 import { useSound } from '../context/SoundContext';
+import { usePeer } from '../context/PeerContext';
+import { useVoiceControls } from '../context/VoiceControlsContext';
 import { hasPermission, PERMISSIONS, isSuperAdmin } from '../utils/permissions';
 import { MAX_MESSAGE_LENGTH, MESSAGE_COOLDOWN_MS, TYPING_TIMEOUT_MS, TYPING_INDICATOR_TTL_MS, MESSAGE_RETENTION_MONTHS } from '../utils/constants';
+import { appAlert, appPrompt } from '../utils/dialogService';
 
-export default function ChatArea({ activeChannelId, activeChannelName, activeServerId, isMobile, onOpenMenu, activeDmUser }) {
+export default function ChatArea({ activeChannelId, activeChannelName, activeServerId, activeChannelType, isMobile, onOpenMenu, activeDmUser }) {
     const [messages, setMessages] = useState([]);
     const [messagesLoading, setMessagesLoading] = useState(true);
     const [newMessage, setNewMessage] = useState('');
@@ -81,6 +129,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
     const [showMemberList, setShowMemberList] = useState(false);
     const [activeCall, setActiveCall] = useState(null);
     const [selectedUserProfile, setSelectedUserProfile] = useState(null);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [enlargedImage, setEnlargedImage] = useState(null);
     const [pendingAttachments, setPendingAttachments] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
@@ -91,6 +140,12 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
     const [confirmDialog, setConfirmDialog] = useState(null);
     const [serverData, setServerData] = useState(null);
     const [currentUserMember, setCurrentUserMember] = useState(null);
+    const [voiceJoined, setVoiceJoined] = useState(false);
+    const [voiceParticipants, setVoiceParticipants] = useState([]);
+    const [voiceLocalStream, setVoiceLocalStream] = useState(null);
+    const [voiceRemoteStreams, setVoiceRemoteStreams] = useState({});
+    const [voiceError, setVoiceError] = useState('');
+    const [voiceWarning, setVoiceWarning] = useState('');
 
     const [sendParticles, setSendParticles] = useState([]);
     const [sendRipple, setSendRipple] = useState(false);
@@ -112,12 +167,50 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
 
     const { currentUser } = useAuth();
     const { playNotification } = useSound();
+    const { peer, myPeerId, registerIncomingCallHandler } = usePeer();
+    const { isMicMuted, isDeafened } = useVoiceControls();
     const messagesEndRef = useRef(null);
     const messagesScrollRef = useRef(null);
     const messageRefs = useRef({});
     const inputRef = useRef(null);
     const typingTimeoutRef = useRef(null);
     const lastMessageTimeRef = useRef(0);
+    const voiceCallsRef = useRef(new Map());
+    const activeVoiceRoomRef = useRef(null);
+    const voiceRoomIdRef = useRef(null);
+    const voiceLocalStreamRef = useRef(null);
+    const voiceJoinedRef = useRef(false);
+    const voiceFallbackCleanupRef = useRef(null);
+    const userIdRef = useRef(currentUser?.uid || null);
+
+    const isVoiceChannel = activeServerId !== 'home' && activeChannelType === 'voice';
+    const voiceRoomId = isVoiceChannel ? activeChannelId : null;
+
+    useEffect(() => {
+        voiceRoomIdRef.current = voiceRoomId;
+        voiceLocalStreamRef.current = voiceLocalStream;
+        voiceJoinedRef.current = voiceJoined;
+        userIdRef.current = currentUser?.uid || null;
+    }, [voiceRoomId, voiceLocalStream, voiceJoined, currentUser?.uid]);
+
+    useEffect(() => {
+        return () => {
+            voiceCallsRef.current.forEach((voiceCall) => {
+                try { voiceCall.close(); } catch (_) { }
+            });
+            voiceCallsRef.current.clear();
+
+            if (voiceLocalStreamRef.current) {
+                voiceLocalStreamRef.current.getTracks().forEach(track => track.stop());
+            }
+            voiceFallbackCleanupRef.current?.();
+            voiceFallbackCleanupRef.current = null;
+
+            if (voiceRoomIdRef.current && userIdRef.current) {
+                deleteDoc(doc(db, 'voiceChannels', voiceRoomIdRef.current, 'participants', userIdRef.current)).catch(() => { });
+            }
+        };
+    }, []);
 
     const fireSendBurst = useCallback(() => {
         if (!sendBtnRef.current) return;
@@ -132,6 +225,146 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
             setSendParticles(prev => prev.filter(p => p.id !== burst.id));
         }, 1000);
     }, []);
+
+    const cleanupVoiceCall = useCallback((remoteUid) => {
+        voiceCallsRef.current.delete(remoteUid);
+        setVoiceRemoteStreams(prev => {
+            if (!prev[remoteUid]) return prev;
+            const next = { ...prev };
+            delete next[remoteUid];
+            return next;
+        });
+    }, []);
+
+    const attachVoiceCallHandlers = useCallback((peerCall, remoteUid) => {
+        peerCall.on('stream', (remoteStream) => {
+            setVoiceRemoteStreams(prev => ({ ...prev, [remoteUid]: remoteStream }));
+        });
+        peerCall.on('close', () => cleanupVoiceCall(remoteUid));
+        peerCall.on('error', () => cleanupVoiceCall(remoteUid));
+    }, [cleanupVoiceCall]);
+
+    const leaveVoiceChannel = useCallback(async () => {
+        const roomToLeave = activeVoiceRoomRef.current || voiceRoomIdRef.current || voiceRoomId;
+
+        voiceCallsRef.current.forEach((voiceCall) => {
+            try { voiceCall.close(); } catch (_) { }
+        });
+        voiceCallsRef.current.clear();
+        setVoiceRemoteStreams({});
+        setVoiceParticipants([]);
+        setVoiceJoined(false);
+        setVoiceError('');
+        setVoiceWarning('');
+        voiceJoinedRef.current = false;
+
+        if (voiceLocalStreamRef.current) {
+            voiceLocalStreamRef.current.getTracks().forEach(track => track.stop());
+            setVoiceLocalStream(null);
+            voiceLocalStreamRef.current = null;
+        }
+        voiceFallbackCleanupRef.current?.();
+        voiceFallbackCleanupRef.current = null;
+
+        if (roomToLeave && currentUser?.uid) {
+            try {
+                await deleteDoc(doc(db, 'voiceChannels', roomToLeave, 'participants', currentUser.uid));
+            } catch (_) { }
+        }
+        activeVoiceRoomRef.current = null;
+    }, [voiceRoomId, currentUser?.uid]);
+
+    const joinVoiceChannel = useCallback(async () => {
+        if (!isVoiceChannel || voiceJoined) return;
+        if (!voiceRoomId || !currentUser?.uid) return;
+        let localStream;
+        let usedFallback = false;
+        setVoiceError('');
+        setVoiceWarning('');
+
+        try {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            } catch (_) {
+                const fallback = createFallbackMediaStream();
+                localStream = fallback.stream;
+                voiceFallbackCleanupRef.current = fallback.cleanup;
+                usedFallback = true;
+                setVoiceWarning('Joined voice in listen-only mode (no microphone/camera detected).');
+            }
+
+            if (!localStream || localStream.getTracks().length === 0) {
+                throw new Error('No media tracks available for voice call');
+            }
+
+            await setDoc(doc(db, 'voiceChannels', voiceRoomId, 'participants', currentUser.uid), {
+                uid: currentUser.uid,
+                peerId: myPeerId || null,
+                displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+                photoURL: currentUser.photoURL || '',
+                channelId: activeChannelId,
+                serverId: activeServerId,
+                joinedAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            }, { merge: true });
+
+            setVoiceLocalStream(localStream);
+            voiceLocalStreamRef.current = localStream;
+            activeVoiceRoomRef.current = voiceRoomId;
+            setVoiceJoined(true);
+            voiceJoinedRef.current = true;
+            if (usedFallback) {
+                setVoiceWarning('Joined voice in listen-only mode (no microphone/camera detected).');
+            } else {
+                setVoiceWarning('');
+            }
+        } catch (error) {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+            voiceFallbackCleanupRef.current?.();
+            voiceFallbackCleanupRef.current = null;
+            setVoiceLocalStream(null);
+            voiceLocalStreamRef.current = null;
+            setVoiceJoined(false);
+            voiceJoinedRef.current = false;
+            activeVoiceRoomRef.current = null;
+            setVoiceWarning('');
+            if (import.meta.env.DEV) console.error('Error joining voice channel:', error);
+            setVoiceError('Could not join voice channel. Check permissions and try again.');
+            void appAlert('Could not join voice channel. Check browser permissions and try again.', { title: 'Voice Join Failed', danger: true });
+        }
+    }, [
+        isVoiceChannel,
+        voiceJoined,
+        myPeerId,
+        voiceRoomId,
+        currentUser?.uid,
+        currentUser?.displayName,
+        currentUser?.email,
+        currentUser?.photoURL,
+        activeChannelId,
+        activeServerId
+    ]);
+
+    useEffect(() => {
+        if (!voiceJoined || !myPeerId || !currentUser?.uid) return;
+        const activeRoom = activeVoiceRoomRef.current || voiceRoomIdRef.current;
+        if (!activeRoom) return;
+
+        updateDoc(doc(db, 'voiceChannels', activeRoom, 'participants', currentUser.uid), {
+            peerId: myPeerId,
+            updatedAt: serverTimestamp(),
+        }).catch(() => { });
+    }, [voiceJoined, myPeerId, currentUser?.uid]);
+
+    useEffect(() => {
+        if (!voiceLocalStream) return;
+        const audioEnabled = !(isMicMuted || isDeafened);
+        voiceLocalStream.getAudioTracks().forEach((track) => {
+            track.enabled = audioEnabled;
+        });
+    }, [voiceLocalStream, isMicMuted, isDeafened]);
 
     // ── Slash commands definition ─────────────────────────────────────────
     const SLASH_COMMANDS = [
@@ -282,6 +515,91 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         return hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.PIN_MESSAGES);
     }, [currentUser, serverData, currentUserMember]);
 
+    // Voice room: subscribe to participants and establish outgoing mesh calls.
+    useEffect(() => {
+        if (!voiceJoined || !voiceRoomId || !voiceLocalStream) return;
+
+        const unsubscribe = onSnapshot(collection(db, 'voiceChannels', voiceRoomId, 'participants'), (snapshot) => {
+            const participants = snapshot.docs.map(d => ({ uid: d.id, ...d.data() }));
+            setVoiceParticipants(participants);
+
+            const participantIds = new Set(participants.map(p => p.uid));
+            voiceCallsRef.current.forEach((existingCall, uid) => {
+                if (!participantIds.has(uid)) {
+                    try { existingCall.close(); } catch (_) { }
+                    cleanupVoiceCall(uid);
+                }
+            });
+
+            participants.forEach((participant) => {
+                if (participant.uid === currentUser.uid || !participant.peerId) return;
+                if (!peer) return;
+                if (voiceCallsRef.current.has(participant.uid)) return;
+
+                const outgoingCall = peer.call(participant.peerId, voiceLocalStream, {
+                    metadata: {
+                        voiceRoomId,
+                        callerUid: currentUser.uid,
+                    },
+                });
+
+                if (!outgoingCall) return;
+                voiceCallsRef.current.set(participant.uid, outgoingCall);
+                attachVoiceCallHandlers(outgoingCall, participant.uid);
+            });
+        });
+
+        return () => unsubscribe();
+    }, [
+        voiceJoined,
+        voiceRoomId,
+        peer,
+        voiceLocalStream,
+        currentUser.uid,
+        attachVoiceCallHandlers,
+        cleanupVoiceCall
+    ]);
+
+    // Voice room: consume incoming PeerJS calls tagged for this voice room.
+    useEffect(() => {
+        if (!registerIncomingCallHandler) return;
+        const unregister = registerIncomingCallHandler((incomingCall) => {
+            const incomingRoomId = incomingCall.metadata?.voiceRoomId;
+            if (!incomingRoomId) return false;
+
+            const currentRoomId = activeVoiceRoomRef.current || voiceRoomIdRef.current;
+            const localStream = voiceLocalStreamRef.current;
+            if (!voiceJoinedRef.current || !localStream || incomingRoomId !== currentRoomId) return false;
+
+            const remoteUid = incomingCall.metadata?.callerUid || incomingCall.peer;
+            if (voiceCallsRef.current.has(remoteUid)) {
+                try { incomingCall.close(); } catch (_) { }
+                return true;
+            }
+
+            incomingCall.answer(localStream);
+            voiceCallsRef.current.set(remoteUid, incomingCall);
+            attachVoiceCallHandlers(incomingCall, remoteUid);
+            return true;
+        });
+
+        return () => unregister();
+    }, [registerIncomingCallHandler, attachVoiceCallHandlers]);
+
+    // Leave active voice channel when switching away from voice channels.
+    useEffect(() => {
+        if (!voiceJoined) return;
+        if (activeVoiceRoomRef.current && activeVoiceRoomRef.current !== voiceRoomId) {
+            leaveVoiceChannel();
+            return;
+        }
+        if (!isVoiceChannel || !voiceRoomId) {
+            leaveVoiceChannel();
+            return;
+        }
+        activeVoiceRoomRef.current = voiceRoomId;
+    }, [voiceJoined, isVoiceChannel, voiceRoomId, leaveVoiceChannel]);
+
     // Request Notification Permission
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -352,7 +670,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 setDoc(doc(db, "users", currentUser.uid, "readState", activeChannelId), {
                     lastRead: serverTimestamp(),
                     channelId: activeChannelId
-                }, { merge: true }).catch(() => {});
+                }, { merge: true }).catch(() => { });
             }
         }, (error) => {
             if (import.meta.env.DEV) console.error("Error fetching messages: ", error);
@@ -391,7 +709,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
     useEffect(() => {
         return () => {
             if (activeChannelId && currentUser?.uid) {
-                deleteDoc(doc(db, "typing", activeChannelId, "users", currentUser.uid)).catch(() => {});
+                deleteDoc(doc(db, "typing", activeChannelId, "users", currentUser.uid)).catch(() => { });
             }
         };
     }, [activeChannelId, currentUser?.uid]);
@@ -500,12 +818,12 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                             const result = await checkImage(img);
 
                             if (result.isNSFW) {
-                                alert(`Paste rejected: ${result.reason}`);
+                                await appAlert(`Paste rejected: ${result.reason}`, { title: 'Image Blocked', danger: true });
                                 return;
                             }
                         } catch (filterError) {
                             if (import.meta.env.DEV) console.error("Filter check failed:", filterError);
-                            alert("Image safety check failed. Please try uploading instead.");
+                            await appAlert("Image safety check failed. Please try uploading instead.", { title: 'Image Check Failed', danger: true });
                             return;
                         }
 
@@ -537,7 +855,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
 
         // Message length check
         if (newMessage.length > MAX_MESSAGE_LENGTH) {
-            alert(`Message too long! Maximum ${MAX_MESSAGE_LENGTH} characters.`);
+            await appAlert(`Message too long! Maximum ${MAX_MESSAGE_LENGTH} characters.`, { title: 'Message Too Long' });
             return;
         }
 
@@ -598,6 +916,12 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                         attachment: attachment
                     });
                 }
+
+                if (activeServerId === 'home') {
+                    setDoc(doc(db, "dms", activeChannelId), {
+                        updatedAt: serverTimestamp()
+                    }, { merge: true }).catch(() => { });
+                }
             }
 
             fireSendBurst();
@@ -607,7 +931,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
             inputRef.current?.focus();
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error sending message:", error);
-            alert("Failed to send message.");
+            await appAlert("Failed to send message.", { title: 'Send Failed', danger: true });
         } finally {
             setIsUploading(false);
         }
@@ -636,6 +960,12 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
             channel: activeChannelId,
             ...(replyingTo ? { replyTo: { id: replyingTo.id, text: (replyingTo.text || '').slice(0, 100), displayName: replyingTo.displayName } } : {})
         });
+
+        if (activeServerId === 'home') {
+            setDoc(doc(db, "dms", activeChannelId), {
+                updatedAt: serverTimestamp()
+            }, { merge: true }).catch(() => { });
+        }
 
         setShowGifPicker(false);
         setReplyingTo(null);
@@ -736,8 +1066,13 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
     };
 
     const handleReport = async (message) => {
-        const reason = prompt("Why are you reporting this message?");
-        if (!reason) return;
+        const reason = await appPrompt("Why are you reporting this message?", {
+            title: 'Report Message',
+            placeholder: 'Describe the issue',
+            confirmText: 'Submit Report',
+            cancelText: 'Cancel'
+        });
+        if (!reason?.trim()) return;
 
         try {
             await addDoc(collection(db, "reports"), {
@@ -746,16 +1081,16 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 content: message.text || 'Attachment',
                 reportedBy: currentUser.uid,
                 reportedUser: message.uid,
-                reason: reason,
+                reason: reason.trim(),
                 createdAt: serverTimestamp(),
                 status: 'pending',
                 channelId: activeChannelId,
                 serverId: activeServerId
             });
-            alert("Report submitted to moderators.");
+            await appAlert("Report submitted to moderators.", { title: 'Report Sent' });
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error submitting report:", error);
-            alert("Failed to submit report.");
+            await appAlert("Failed to submit report.", { title: 'Report Failed', danger: true });
         }
     };
 
@@ -763,6 +1098,11 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
         if (!activeDmUser) return;
         setActiveCall({ isCaller: true, remoteUserId: activeDmUser.uid });
     };
+
+    const isHomeChannel = activeServerId === 'home';
+    const isDirectMessageChannel = isHomeChannel && !!activeDmUser && activeChannelType !== 'group-dm';
+    const safeChannelName = activeChannelName || 'channel';
+    const formattedChannelName = isHomeChannel ? safeChannelName : `#${safeChannelName}`;
 
     // Filter messages for search
     const filteredMessages = useMemo(() => {
@@ -849,7 +1189,11 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                         onClick={onOpenMenu}
                     />
                 )}
-                <Hash size={isMobile ? 20 : 24} color="var(--accent)" style={{ marginRight: '8px' }} />
+                {isVoiceChannel ? (
+                    <Volume2 size={isMobile ? 20 : 24} color="var(--accent)" style={{ marginRight: '8px' }} />
+                ) : (
+                    <Hash size={isMobile ? 20 : 24} color="var(--accent)" style={{ marginRight: '8px' }} />
+                )}
                 <h3 style={{
                     margin: 0,
                     fontSize: isMobile ? '16px' : '17px',
@@ -865,7 +1209,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                     <>
                         <span style={{ margin: '0 12px', color: 'var(--text-muted)' }}>|</span>
                         <span style={{ fontSize: '14px', color: 'var(--text-secondary)', flex: 1 }}>
-                            Welcome to #{activeChannelName}
+                            Welcome to {formattedChannelName}
                         </span>
                     </>
                 )}
@@ -917,7 +1261,18 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                         </button>
                     )}
 
-                    {activeServerId === 'home' && (
+                    {isVoiceChannel && (
+                        <button
+                            className="icon-btn"
+                            onClick={voiceJoined ? leaveVoiceChannel : joinVoiceChannel}
+                            title={voiceJoined ? 'Leave voice channel' : 'Join voice channel'}
+                            style={{ color: voiceJoined ? '#22c55e' : 'var(--text-secondary)' }}
+                        >
+                            <Phone size={20} />
+                        </button>
+                    )}
+
+                    {isDirectMessageChannel && (
                         <button
                             className="icon-btn"
                             onClick={startCall}
@@ -1031,6 +1386,92 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 </div>
             )}
 
+            {isVoiceChannel && (
+                <div style={{
+                    padding: '10px 14px',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                        <Volume2 size={16} color={voiceJoined ? '#22c55e' : 'var(--text-muted)'} />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {voiceJoined ? 'Connected to voice channel' : 'Voice channel ready'}
+                        </span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            {voiceParticipants.length} in call
+                        </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={voiceJoined ? leaveVoiceChannel : joinVoiceChannel}
+                            className={voiceJoined ? 'secondary-button' : 'glossy-button'}
+                            style={{ padding: '7px 12px', fontSize: '12px' }}
+                        >
+                            {voiceJoined ? 'Leave Voice' : 'Join Voice'}
+                        </button>
+                    </div>
+
+                    {voiceParticipants.length > 0 && (
+                        <div style={{ width: '100%', display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                            {voiceParticipants.map((participant) => (
+                                <div
+                                    key={participant.uid}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        padding: '5px 8px',
+                                        borderRadius: '999px',
+                                        backgroundColor: participant.uid === currentUser.uid ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.05)',
+                                        border: participant.uid === currentUser.uid ? '1px solid rgba(34,197,94,0.35)' : '1px solid rgba(255,255,255,0.1)',
+                                        maxWidth: '220px',
+                                    }}
+                                >
+                                    <VoiceParticipantAvatar participant={participant} />
+                                    <span style={{
+                                        fontSize: '12px',
+                                        color: 'var(--text-primary)',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}>
+                                        {participant.displayName || 'User'}{participant.uid === currentUser.uid ? ' (you)' : ''}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {voiceError && (
+                        <div style={{ width: '100%', fontSize: '12px', color: '#fca5a5' }}>{voiceError}</div>
+                    )}
+                    {voiceWarning && !voiceError && (
+                        <div style={{ width: '100%', fontSize: '12px', color: '#facc15' }}>{voiceWarning}</div>
+                    )}
+                </div>
+            )}
+
+            {Object.entries(voiceRemoteStreams).map(([uid, remoteStream]) => (
+                <audio
+                    key={`voice-audio-${uid}`}
+                    autoPlay
+                    playsInline
+                    muted={isDeafened}
+                    ref={(el) => {
+                        if (el && el.srcObject !== remoteStream) {
+                            el.srcObject = remoteStream;
+                        }
+                    }}
+                    style={{ display: 'none' }}
+                />
+            ))}
+
             <div className="chat-body-shell" style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
                 {/* Main Chat Content */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
@@ -1083,9 +1524,9 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                     </div>
                                 </motion.div>
                                 <h3 style={{ marginBottom: '8px', color: 'var(--text-primary)', fontFamily: 'Space Grotesk, sans-serif', fontSize: '1.15rem' }}>
-                                    Welcome to #{activeChannelName}!
+                                    Welcome to {formattedChannelName}!
                                 </h3>
-                                <p style={{ fontSize: '14px' }}>This is the start of the #{activeChannelName} channel. Say hello!</p>
+                                <p style={{ fontSize: '14px' }}>This is the start of the {formattedChannelName} channel. Say hello!</p>
                             </motion.div>
                         )}
 
@@ -1107,7 +1548,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                             const yesterday = new Date(now - 86400000).toDateString();
                                             const label = msgDate.toDateString() === today ? 'Today'
                                                 : msgDate.toDateString() === yesterday ? 'Yesterday'
-                                                : msgDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+                                                    : msgDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
                                             dateSep = (
                                                 <div key={`sep-${msg.id}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px 16px 8px', userSelect: 'none' }}>
                                                     <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(168,85,247,0.2))' }} />
@@ -1120,32 +1561,37 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                         }
                                     }
                                     return (
-                                    <div key={msg.id}>
-                                        {dateSep}
-                                    <motion.div
-                                        ref={el => messageRefs.current[msg.id] = el}
-                                        initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        transition={{ type: 'spring', stiffness: 380, damping: 28, mass: 0.7 }}
-                                        style={{ transition: 'background-color 0.5s' }}
-                                    >
-                                        <Message
-                                            message={msg}
-                                            prevMessage={prevMsg}
-                                            currentUser={currentUser}
-                                            onEdit={handleEditMessage}
-                                            onDelete={handleDeleteMessage}
-                                            onReply={handleReplyMessage}
-                                            onReport={handleReport}
-                                            onViewProfile={(uid, displayName, photoURL) => setSelectedUserProfile({ uid, displayName, photoURL })}
-                                            onImageClick={(url) => setEnlargedImage(url)}
-                                            onReact={handleReaction}
-                                            onPin={canPin ? handlePinMessage : null}
-                                            canModerate={canModerate}
-                                            onScrollToMessage={scrollToMessage}
-                                        />
-                                    </motion.div>
-                                    </div>
+                                        <div key={msg.id}>
+                                            {dateSep}
+                                            <motion.div
+                                                ref={el => messageRefs.current[msg.id] = el}
+                                                initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                transition={{ type: 'spring', stiffness: 380, damping: 28, mass: 0.7 }}
+                                                style={{ transition: 'background-color 0.5s' }}
+                                            >
+                                                <Message
+                                                    message={msg}
+                                                    prevMessage={prevMsg}
+                                                    currentUser={currentUser}
+                                                    onEdit={handleEditMessage}
+                                                    onDelete={handleDeleteMessage}
+                                                    onReply={handleReplyMessage}
+                                                    onReport={handleReport}
+                                                    onViewProfile={(uid, displayName, photoURL) => setSelectedUserProfile({ uid, displayName, photoURL })}
+                                                    onRightClickProfile={(uid) => {
+                                                        if (uid === currentUser.uid) {
+                                                            setIsSettingsOpen(true);
+                                                        }
+                                                    }}
+                                                    onImageClick={(url) => setEnlargedImage(url)}
+                                                    onReact={handleReaction}
+                                                    onPin={canPin ? handlePinMessage : null}
+                                                    canModerate={canModerate}
+                                                    onScrollToMessage={scrollToMessage}
+                                                />
+                                            </motion.div>
+                                        </div>
                                     );
                                 })}
                             </AnimatePresence>
@@ -1369,13 +1815,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                                 transition: 'background-color 0.1s',
                                             }}
                                         >
-                                            <div style={{
-                                                width: '28px', height: '28px', borderRadius: '50%',
-                                                backgroundImage: member.photoURL ? `url(${member.photoURL})` : 'linear-gradient(135deg,#a855f7,#ec4899)',
-                                                backgroundSize: 'cover',
-                                                flexShrink: 0,
-                                                border: '1px solid rgba(168,85,247,0.3)',
-                                            }} />
+                                            <VoiceParticipantAvatar participant={member} />
                                             <span style={{ fontWeight: 600, fontSize: '14px', color: i === mentionIndex ? '#c084fc' : 'var(--text-primary)' }}>
                                                 {member.displayName}
                                             </span>
@@ -1496,8 +1936,8 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                                 onPaste={handlePaste}
                                 placeholder={
                                     editingMessage ? 'Edit your message...' :
-                                    replyingTo ? `Reply to ${replyingTo.displayName}...` :
-                                    `Message #${activeChannelName}`
+                                        replyingTo ? `Reply to ${replyingTo.displayName}...` :
+                                            `Message #${activeChannelName}`
                                 }
                                 rows={1}
                                 style={{
@@ -1722,6 +2162,11 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 isMobile={isMobile}
             />
 
+            <SettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
+            />
+
             {/* Confirm Dialog */}
             <ConfirmDialog
                 isOpen={!!confirmDialog}
@@ -1730,7 +2175,7 @@ export default function ChatArea({ activeChannelId, activeChannelName, activeSer
                 message={confirmDialog?.message}
                 confirmText={confirmDialog?.confirmText}
                 danger={confirmDialog?.danger}
-                onConfirm={confirmDialog?.onConfirm || (() => {})}
+                onConfirm={confirmDialog?.onConfirm || (() => { })}
             />
 
             {/* Send particle burst */}
