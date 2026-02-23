@@ -16,6 +16,7 @@ export default function MobileLayout() {
     const [activeServerId, setActiveServerId] = useState('home');
     const [activeChannelId, setActiveChannelId] = useState(null);
     const [activeChannelName, setActiveChannelName] = useState('general');
+    const [activeChannelType, setActiveChannelType] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [settingsInitialTab, setSettingsInitialTab] = useState('account');
     const [activeDmUser, setActiveDmUser] = useState(null);
@@ -55,6 +56,8 @@ export default function MobileLayout() {
                             setActiveServerId={(id) => {
                                 setActiveServerId(id);
                                 setActiveChannelId(null);
+                                setActiveChannelType(id === 'home' ? 'dm' : null);
+                                setActiveDmUser(null);
                                 setActiveTab('chat');
                             }}
                             isMobileView={true}
@@ -63,47 +66,6 @@ export default function MobileLayout() {
                 );
 
             case 'chat':
-                if (!activeChannelId && activeServerId === 'home') {
-                    return (
-                        <div style={{
-                            padding: '40px 20px',
-                            textAlign: 'center',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            height: '100%'
-                        }}>
-                            <div style={{
-                                width: '80px',
-                                height: '80px',
-                                borderRadius: '50%',
-                                background: 'var(--gradient-primary)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                marginBottom: '24px',
-                                boxShadow: '0 8px 32px var(--accent-glow)'
-                            }}>
-                                <span style={{ fontSize: '36px' }}>💬</span>
-                            </div>
-                            <h2 style={{ marginBottom: '12px', fontSize: '24px', fontWeight: 700 }}>
-                                Welcome to Gravity
-                            </h2>
-                            <p style={{ color: 'var(--text-muted)', marginBottom: '24px', maxWidth: '280px' }}>
-                                Select a server or friend to start chatting with your community
-                            </p>
-                            <button
-                                className="glossy-button"
-                                onClick={() => setActiveTab('servers')}
-                                style={{ padding: '14px 28px' }}
-                            >
-                                Browse Servers
-                            </button>
-                        </div>
-                    );
-                }
-
                 return (
                     <div style={{
                         height: '100%',
@@ -111,7 +73,7 @@ export default function MobileLayout() {
                         flexDirection: 'column',
                         overflow: 'hidden'
                     }}>
-                        {activeServerId !== 'home' && !activeChannelId && (
+                        {!activeChannelId && (
                             <div style={{
                                 height: '100%',
                                 overflowY: 'auto',
@@ -122,6 +84,7 @@ export default function MobileLayout() {
                                     activeChannelId={activeChannelId}
                                     setActiveChannelId={setActiveChannelId}
                                     setActiveChannelName={setActiveChannelName}
+                                    setActiveChannelType={setActiveChannelType}
                                     isMobileView={true}
                                     setActiveDmUser={setActiveDmUser}
                                 />
@@ -132,8 +95,13 @@ export default function MobileLayout() {
                                 activeChannelId={activeChannelId}
                                 activeChannelName={activeChannelName}
                                 activeServerId={activeServerId}
+                                activeChannelType={activeChannelType}
                                 isMobile={true}
-                                onOpenMenu={() => setActiveChannelId(null)}
+                                onOpenMenu={() => {
+                                    setActiveChannelId(null);
+                                    setActiveChannelType(null);
+                                    setActiveDmUser(null);
+                                }}
                                 activeDmUser={activeDmUser}
                             />
                         )}
@@ -153,6 +121,7 @@ export default function MobileLayout() {
                                 const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
                                 setActiveChannelId(dmId);
                                 setActiveChannelName(user.displayName);
+                                setActiveChannelType('dm');
                                 setActiveDmUser(user);
                                 setActiveServerId('home');
                                 setActiveTab('chat');
