@@ -6,6 +6,7 @@ import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, setDoc, doc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { INVITE_CODE_LENGTH } from '../utils/constants';
+import { appAlert } from '../utils/dialogService';
 
 function generateSecureInviteCode(length = INVITE_CODE_LENGTH) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -101,10 +102,10 @@ export default function CreateServerModal({ isOpen, onClose }) {
             setServerDescription('');
         } catch (error) {
             if (serverRef) {
-                try { await deleteDoc(doc(db, 'servers', serverRef.id)); } catch (_) {}
+                try { await deleteDoc(doc(db, 'servers', serverRef.id)); } catch (_) { }
             }
             if (import.meta.env.DEV) console.error('Error creating server:', error);
-            alert('Failed to create server. Please try again.');
+            await appAlert('Failed to create server. Please try again.', { title: 'Server Creation Failed', danger: true });
         } finally {
             setLoading(false);
         }
@@ -144,13 +145,14 @@ export default function CreateServerModal({ isOpen, onClose }) {
                         exit={{ opacity: 0, scale: 0.88, y: 20 }}
                         transition={{ type: 'spring', stiffness: 380, damping: 26, mass: 0.8 }}
                         onClick={(e) => e.stopPropagation()}
+                        className="glass-panel liquid-panel"
                         style={{
                             width: '100%',
                             maxWidth: '460px',
                             borderRadius: '20px',
                             background: 'linear-gradient(160deg, rgba(19,13,34,0.99) 0%, rgba(9,6,20,0.99) 100%)',
-                            border: '1px solid rgba(168,85,247,0.25)',
-                            boxShadow: '0 0 80px rgba(168,85,247,0.15), 0 30px 80px rgba(0,0,0,0.7)',
+                            border: '1px solid var(--glass-border)',
+                            boxShadow: 'var(--shadow-lg), 0 0 60px rgba(168, 85, 247, 0.2)',
                             overflow: 'hidden',
                             position: 'relative',
                         }}
