@@ -12,11 +12,13 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ParticleEffects from './components/ParticleEffects';
 import AppLoader from './components/AppLoader';
 import QuickSwitcher from './components/QuickSwitcher';
+import InAppDialogProvider from './components/InAppDialogProvider';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PeerProvider, usePeer } from './context/PeerContext';
 import { SoundProvider, useSound } from './context/SoundContext';
 import { EmojiProvider } from './context/EmojiContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { VoiceControlsProvider } from './context/VoiceControlsContext';
 import './App.css';
 
 function PrivateRoute({ children }) {
@@ -28,6 +30,7 @@ function Home() {
     const [activeServerId, setActiveServerId] = useState('home');
     const [activeChannelId, setActiveChannelId] = useState(null);
     const [activeChannelName, setActiveChannelName] = useState('general');
+    const [activeChannelType, setActiveChannelType] = useState(null);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [showMobileMenu, setShowMobileMenu] = useState(false);
     const [activeDmUser, setActiveDmUser] = useState(null);
@@ -52,7 +55,7 @@ function Home() {
 
     useEffect(() => {
         if (incomingCall && !isMuted) {
-            ringtoneRef.current.play().catch(() => {});
+            ringtoneRef.current.play().catch(() => { });
         } else {
             ringtoneRef.current.pause();
             ringtoneRef.current.currentTime = 0;
@@ -88,10 +91,11 @@ function Home() {
         return () => window.removeEventListener('keydown', handler);
     }, []);
 
-    const handleQuickNavigate = ({ serverId, channelId, channelName, dmUser }) => {
+    const handleQuickNavigate = ({ serverId, channelId, channelName, channelType, dmUser }) => {
         if (serverId !== activeServerId) setActiveServerId(serverId);
         setActiveChannelId(channelId);
         setActiveChannelName(channelName);
+        setActiveChannelType(channelType || (serverId === 'home' ? 'dm' : 'text'));
         setActiveDmUser(dmUser || null);
     };
 
@@ -112,9 +116,9 @@ function Home() {
                         style={{
                             position: 'absolute',
                             inset: 0,
-                            background: 'linear-gradient(135deg, #06040f 0%, #0e0a1a 40%, #130d22 70%, #0a0418 100%)',
+                            background: 'linear-gradient(135deg, #09090b 0%, #121214 40%, #18181b 70%, #09090b 100%)',
                             backgroundSize: '280% 280%',
-                            zIndex: -1,
+                            zIndex: -2,
                         }}
                         animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                         transition={{ duration: 18, ease: 'easeInOut', repeat: Infinity }}
@@ -125,7 +129,7 @@ function Home() {
                         position: 'absolute',
                         top: '8px',
                         right: '8px',
-                        color: 'rgba(168,85,247,0.25)',
+                        color: 'rgba(176, 186, 196, 0.28)',
                         fontSize: '10px',
                         fontWeight: 700,
                         pointerEvents: 'none',
@@ -138,12 +142,21 @@ function Home() {
 
                     {/* Navigation */}
                     <div className="app-nav-shell" style={{ display: 'flex', position: 'relative', zIndex: 100, height: '100%' }}>
-                        <Sidebar activeServerId={activeServerId} setActiveServerId={setActiveServerId} />
+                        <Sidebar
+                            activeServerId={activeServerId}
+                            setActiveServerId={(id) => {
+                                setActiveServerId(id);
+                                setActiveChannelId(null);
+                                setActiveChannelType(id === 'home' ? 'dm' : null);
+                                if (id === 'home') setActiveDmUser(null);
+                            }}
+                        />
                         <ChannelList
                             activeServerId={activeServerId}
                             activeChannelId={activeChannelId}
                             setActiveChannelId={setActiveChannelId}
                             setActiveChannelName={setActiveChannelName}
+                            setActiveChannelType={setActiveChannelType}
                             setActiveDmUser={setActiveDmUser}
                         />
                     </div>
@@ -166,6 +179,7 @@ function Home() {
                                             const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
                                             setActiveChannelId(dmId);
                                             setActiveChannelName(user.displayName);
+                                            setActiveChannelType('dm');
                                             setActiveDmUser(user);
                                         }}
                                     />
@@ -183,6 +197,7 @@ function Home() {
                                         activeChannelId={activeChannelId}
                                         activeChannelName={activeChannelName}
                                         activeServerId={activeServerId}
+                                        activeChannelType={activeChannelType}
                                         activeDmUser={activeDmUser}
                                         isMobile={false}
                                     />
@@ -246,28 +261,32 @@ function App() {
 
     return (
         <ErrorBoundary>
-            <AuthProvider>
-                <ThemeProvider>
-                    <SoundProvider>
-                        <EmojiProvider>
-                            <PeerProvider>
-                                <AppLoader show={!appReady} />
-                                <Router>
-                                    <ParticleEffects />
-                                    <Routes>
-                                        <Route path="/login" element={<Login />} />
-                                        <Route path="/" element={
-                                            <PrivateRoute>
-                                                <Home />
-                                            </PrivateRoute>
-                                        } />
-                                    </Routes>
-                                </Router>
-                            </PeerProvider>
-                        </EmojiProvider>
-                    </SoundProvider>
-                </ThemeProvider>
-            </AuthProvider>
+            <InAppDialogProvider>
+                <VoiceControlsProvider>
+                    <AuthProvider>
+                        <ThemeProvider>
+                            <SoundProvider>
+                                <EmojiProvider>
+                                    <PeerProvider>
+                                        <AppLoader show={!appReady} />
+                                        <Router>
+                                            <ParticleEffects />
+                                            <Routes>
+                                                <Route path="/login" element={<Login />} />
+                                                <Route path="/" element={
+                                                    <PrivateRoute>
+                                                        <Home />
+                                                    </PrivateRoute>
+                                                } />
+                                            </Routes>
+                                        </Router>
+                                    </PeerProvider>
+                                </EmojiProvider>
+                            </SoundProvider>
+                        </ThemeProvider>
+                    </AuthProvider>
+                </VoiceControlsProvider>
+            </InAppDialogProvider>
         </ErrorBoundary>
     );
 }
