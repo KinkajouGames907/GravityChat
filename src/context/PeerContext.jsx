@@ -16,6 +16,21 @@ export function PeerProvider({ children }) {
     const [activeCall, setActiveCall] = useState(null); // The active call object (either incoming or outgoing)
     const { currentUser } = useAuth();
     const peerRef = useRef(null);
+    const incomingCallHandlersRef = useRef(new Set());
+    const pendingVoiceCallsRef = useRef(new Set());
+
+    const dispatchIncomingCall = (call) => {
+        for (const handler of incomingCallHandlersRef.current) {
+            try {
+                if (handler(call) === true) {
+                    return true;
+                }
+            } catch (err) {
+                if (import.meta.env.DEV) console.error('Incoming call handler error:', err);
+            }
+        }
+        return false;
+    };
 
     useEffect(() => {
         const uid = currentUser?.uid;
@@ -36,8 +51,25 @@ export function PeerProvider({ children }) {
         });
 
         newPeer.on('call', (call) => {
-            if (import.meta.env.DEV) console.log('Incoming call from:', call.peer);
-            setIncomingCall(call);
+            if (import.meta.env.DEV) console.log('Incoming call from:', call.peer, call.metadata || {});
+            const handled = dispatchIncomingCall(call);
+            if (!handled) {
+                if (call.metadata?.voiceRoomId) {
+                    pendingVoiceCallsRef.current.add(call);
+                    const cleanupPending = () => pendingVoiceCallsRef.current.delete(call);
+                    call.on('close', cleanupPending);
+                    call.on('error', cleanupPending);
+
+                    setTimeout(() => {
+                        if (pendingVoiceCallsRef.current.has(call)) {
+                            pendingVoiceCallsRef.current.delete(call);
+                            try { call.close(); } catch (_) { }
+                        }
+                    }, 12000);
+                } else {
+                    setIncomingCall(call);
+                }
+            }
         });
 
         newPeer.on('error', (err) => {
@@ -51,6 +83,7 @@ export function PeerProvider({ children }) {
 
         return () => {
             if (import.meta.env.DEV) console.log('Destroying PeerJS instance for user:', uid);
+            pendingVoiceCallsRef.current.clear();
             newPeer.destroy();
         };
     }, [currentUser?.uid]);
@@ -116,6 +149,17 @@ export function PeerProvider({ children }) {
         setIncomingCall(null);
     };
 
+    const registerIncomingCallHandler = (handler) => {
+        incomingCallHandlersRef.current.add(handler);
+        const pendingCalls = Array.from(pendingVoiceCallsRef.current);
+        pendingCalls.forEach((call) => {
+            if (dispatchIncomingCall(call)) {
+                pendingVoiceCallsRef.current.delete(call);
+            }
+        });
+        return () => incomingCallHandlersRef.current.delete(handler);
+    };
+
     const value = {
         peer,
         myPeerId,
@@ -125,7 +169,8 @@ export function PeerProvider({ children }) {
         setActiveCall,
         callUser,
         answerCall,
-        endCall
+        endCall,
+        registerIncomingCallHandler
     };
 
     return (
