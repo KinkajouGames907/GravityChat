@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { motion } from 'framer-motion';
 import { Palette, Zap, Music, Save, RotateCcw, Upload, Play, Check } from 'lucide-react';
+import { appConfirm } from '../utils/dialogService';
 
 export default function ThemeSettings() {
     const { theme, updateTheme, resetTheme } = useTheme();
@@ -38,8 +39,12 @@ export default function ThemeSettings() {
         setHasChanges(false);
     };
 
-    const handleReset = () => {
-        if (window.confirm('Reset all theme settings to default?')) {
+    const handleReset = async () => {
+        const confirmed = await appConfirm(
+            'Reset all theme settings to default?',
+            { title: 'Reset Theme', confirmText: 'Reset', cancelText: 'Cancel', danger: true }
+        );
+        if (confirmed) {
             resetTheme();
             setLocalTheme(theme); // Will be updated by context, but for immediate feedback
             setHasChanges(false);
