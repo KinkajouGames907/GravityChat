@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Minimize2, Maximize2, Settings, X, Check } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Minimize2, Maximize2, Settings, X } from 'lucide-react';
 import { usePeer } from '../context/PeerContext';
+import { createFallbackMediaStream } from '../utils/mediaFallback';
+import { appAlert } from '../utils/dialogService';
 
 export default function CallModal({ call, currentUser, isCaller, onClose, remoteUserId }) {
     const [callStatus, setCallStatus] = useState('initializing'); // initializing, calling, incoming, connected, ended
@@ -10,7 +12,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     const [remoteStream, setRemoteStream] = useState(null);
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOff, setIsVideoOff] = useState(false);
-    const [isMinimized, setIsMinimized] = useState(false);
+    const [isMinimized, setIsMinimized] = useState(Boolean(isCaller));
 
     // Device Settings State
     const [showSettings, setShowSettings] = useState(false);
@@ -19,11 +21,13 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     const [selectedVideoInput, setSelectedVideoInput] = useState('');
     const [selectedAudioOutput, setSelectedAudioOutput] = useState('');
     const [remoteVolume, setRemoteVolume] = useState(1); // Default 100%
+    const [mediaWarning, setMediaWarning] = useState('');
     const [peerCall, setPeerCall] = useState(null); // Store the actual PeerJS MediaConnection
 
     const { callUser, answerCall, endCall: endPeerCall } = usePeer();
     const myVideo = useRef();
     const userVideo = useRef();
+    const fallbackCleanupRef = useRef(null);
 
     // Web Audio API Refs
     const audioContextRef = useRef(null);
@@ -141,6 +145,8 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
 
     useEffect(() => {
         let currentCall = call;
+        let currentStream = null;
+        let cancelled = false;
 
         // Get user media with specific devices if selected, otherwise default
         const constraints = {
@@ -149,13 +155,18 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         };
 
         navigator.mediaDevices.getUserMedia(constraints)
-            .then((currentStream) => {
-                setStream(currentStream);
+            .then((newStream) => {
+                if (cancelled) {
+                    newStream.getTracks().forEach(track => track.stop());
+                    return;
+                }
+                currentStream = newStream;
+                setStream(newStream);
 
                 if (isCaller) {
                     // Initiate call
                     setCallStatus('calling');
-                    currentCall = callUser(remoteUserId, currentStream);
+                    currentCall = callUser(remoteUserId, newStream);
                     if (currentCall) {
                         setPeerCall(currentCall); // Save reference
                         currentCall.on('stream', (remoteStream) => {
@@ -168,7 +179,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                             handleEndCall();
                         });
                     } else {
-                        alert("Failed to start call. Peer not ready.");
+                        void appAlert("Call failed, user not online.", { title: 'Call Failed', danger: true });
                         onClose();
                     }
                 } else {
@@ -180,26 +191,54 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
                 }
             })
             .catch((err) => {
-                import.meta.env.DEV && console.error("Error accessing media devices:", err);
-                let errorMessage = "Could not access camera/microphone.";
+                import.meta.env.DEV && console.error("Error accessing media devices, using fallback:", err);
+                const fallback = createFallbackMediaStream({ includeVideo: false });
+                const fallbackStream = fallback.stream;
 
-                if (!window.isSecureContext) {
-                    errorMessage = "iOS (iPhone/iPad) requires a secure HTTPS connection for calls. If testing locally, you must use localhost or setup HTTPS.";
-                } else if (err.name === 'NotAllowedError') {
-                    errorMessage = "Permission denied. Please allow camera/microphone access in your browser settings.";
-                } else if (err.name === 'NotFoundError') {
-                    errorMessage = "No camera or microphone found.";
+                if (!fallbackStream || fallbackStream.getTracks().length === 0) {
+                    void appAlert("Could not initialize call media.", { title: 'Call Failed', danger: true });
+                    onClose();
+                    return;
                 }
 
-                alert(errorMessage);
-                onClose();
+                fallbackCleanupRef.current = fallback.cleanup;
+                currentStream = fallbackStream;
+                setStream(fallbackStream);
+                setIsMuted(true);
+                setIsVideoOff(true);
+                setMediaWarning('No camera/microphone detected. You joined in listen-only mode.');
+
+                if (isCaller) {
+                    setCallStatus('calling');
+                    currentCall = callUser(remoteUserId, fallbackStream);
+                    if (currentCall) {
+                        setPeerCall(currentCall);
+                        currentCall.on('stream', (incomingRemoteStream) => {
+                            setRemoteStream(incomingRemoteStream);
+                            setCallStatus('connected');
+                        });
+                        currentCall.on('close', () => handleEndCall());
+                        currentCall.on('error', (e) => {
+                            import.meta.env.DEV && console.error("Call error:", e);
+                            handleEndCall();
+                        });
+                    } else {
+                        void appAlert("Call failed, user not online.", { title: 'Call Failed', danger: true });
+                        onClose();
+                    }
+                } else {
+                    setCallStatus('incoming');
+                    setPeerCall(call);
+                }
             });
 
         return () => {
-            // Cleanup
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+            cancelled = true;
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
             }
+            fallbackCleanupRef.current?.();
+            fallbackCleanupRef.current = null;
         };
     }, []); // Run once on mount. Device switching is handled separately.
 
@@ -276,7 +315,7 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
 
         } catch (err) {
             import.meta.env.DEV && console.error(`Error switching ${type}:`, err);
-            alert(`Failed to switch ${isVideo ? 'camera' : 'microphone'}`);
+            await appAlert(`Failed to switch ${isVideo ? 'camera' : 'microphone'}.`, { title: 'Device Switch Failed', danger: true });
         }
     };
 
@@ -317,49 +356,133 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
         }
+        fallbackCleanupRef.current?.();
+        fallbackCleanupRef.current = null;
         endPeerCall();
         setTimeout(() => {
             onClose();
         }, 1000);
     };
 
+    const statusLabel = callStatus === 'initializing'
+        ? 'Initializing...'
+        : callStatus === 'calling'
+            ? 'Calling...'
+            : callStatus === 'incoming'
+                ? 'Incoming Call'
+                : callStatus === 'connected'
+                    ? 'Connected'
+                    : 'Call Ended';
+
     if (isMinimized) {
         return createPortal(
             <motion.div
                 drag
-                dragConstraints={{ left: 0, right: window.innerWidth - 200, top: 0, bottom: window.innerHeight - 150 }}
+                dragMomentum={false}
+                dragConstraints={{
+                    left: 0,
+                    right: Math.max(0, window.innerWidth - 220),
+                    top: 0,
+                    bottom: Math.max(0, window.innerHeight - 180)
+                }}
                 style={{
                     position: 'fixed',
                     bottom: '20px',
                     right: '20px',
-                    width: '200px',
-                    height: '150px',
+                    width: '220px',
+                    height: '180px',
                     backgroundColor: 'var(--bg-secondary)',
                     borderRadius: '12px',
                     overflow: 'hidden',
-                    zIndex: 2000,
+                    zIndex: 5000,
                     boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
                     border: '1px solid var(--glass-border)'
                 }}
             >
-                {remoteStream ? (
-                    <video playsInline ref={userVideo} autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                <div style={{ height: '132px', position: 'relative', backgroundColor: '#0a0b0d' }}>
+                    {remoteStream ? (
+                        <video playsInline ref={userVideo} autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                            <div style={{
+                                width: '40px', height: '40px', borderRadius: '50%',
+                                backgroundColor: 'var(--bg-tertiary)',
+                                marginBottom: '8px'
+                            }} />
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{statusLabel}</span>
+                        </div>
+                    )}
+                    {mediaWarning && (
                         <div style={{
-                            width: '40px', height: '40px', borderRadius: '50%',
-                            backgroundColor: 'var(--bg-tertiary)',
-                            marginBottom: '8px'
-                        }} />
-                        <span style={{ fontSize: '12px' }}>{callStatus === 'connected' ? 'Connected' : (callStatus === 'incoming' ? 'Incoming Call...' : 'Calling...')}</span>
-                    </div>
-                )}
-                <button
-                    onClick={() => setIsMinimized(false)}
-                    style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', padding: '4px' }}
-                >
-                    <Maximize2 size={14} />
-                </button>
+                            position: 'absolute',
+                            left: '6px',
+                            right: '6px',
+                            bottom: '6px',
+                            fontSize: '10px',
+                            color: '#facc15',
+                            background: 'rgba(0,0,0,0.55)',
+                            borderRadius: '6px',
+                            padding: '4px 6px',
+                            textAlign: 'center'
+                        }}>
+                            {mediaWarning}
+                        </div>
+                    )}
+                </div>
+
+                <div style={{
+                    height: '48px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0 8px',
+                    borderTop: '1px solid var(--glass-border)',
+                    background: 'rgba(10,10,12,0.9)'
+                }}>
+                    {callStatus === 'incoming' ? (
+                        <>
+                            <button
+                                onClick={handleAcceptCall}
+                                className="icon-btn"
+                                style={{ backgroundColor: 'var(--success)', width: '34px', height: '34px', borderRadius: '50%', color: 'white' }}
+                            >
+                                <Phone size={16} />
+                            </button>
+                            <button
+                                onClick={handleEndCall}
+                                className="icon-btn"
+                                style={{ backgroundColor: 'var(--danger)', width: '34px', height: '34px', borderRadius: '50%', color: 'white' }}
+                            >
+                                <PhoneOff size={16} />
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <button
+                                onClick={toggleMute}
+                                className="icon-btn"
+                                style={{ backgroundColor: isMuted ? 'var(--danger)' : 'var(--bg-tertiary)', width: '34px', height: '34px', borderRadius: '50%' }}
+                            >
+                                {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                            </button>
+                            <button
+                                onClick={() => setIsMinimized(false)}
+                                className="icon-btn"
+                                style={{ backgroundColor: 'var(--bg-tertiary)', width: '34px', height: '34px', borderRadius: '50%' }}
+                            >
+                                <Maximize2 size={16} />
+                            </button>
+                            <button
+                                onClick={handleEndCall}
+                                className="icon-btn"
+                                style={{ backgroundColor: 'var(--danger)', width: '34px', height: '34px', borderRadius: '50%', color: 'white' }}
+                            >
+                                <PhoneOff size={16} />
+                            </button>
+                        </>
+                    )}
+                </div>
+
                 {/* Hidden Audio Output for Amplification */}
                 <audio ref={audioOutputRef} style={{ display: 'none' }} />
             </motion.div>,
@@ -368,309 +491,314 @@ export default function CallModal({ call, currentUser, isCaller, onClose, remote
     }
 
     return createPortal(
-        <div style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.9)',
-            zIndex: 9999,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
-        }}>
-            <div style={{
-                position: 'relative',
-                width: '100%',
-                maxWidth: '1000px',
-                height: '80vh',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                backgroundColor: '#1a1a1a',
+        <motion.div
+            drag
+            dragMomentum={false}
+            dragConstraints={{
+                left: 0,
+                right: Math.max(0, window.innerWidth - 460),
+                top: 0,
+                bottom: Math.max(0, window.innerHeight - 560)
+            }}
+            style={{
+                position: 'fixed',
+                right: '20px',
+                bottom: '20px',
+                width: 'min(460px, calc(100vw - 24px))',
+                height: 'min(560px, calc(100vh - 24px))',
+                backgroundColor: 'var(--bg-secondary)',
                 borderRadius: '16px',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                zIndex: 5000,
+                border: '1px solid var(--glass-border)',
+                boxShadow: '0 18px 45px rgba(0,0,0,0.6)',
+                display: 'flex',
+                flexDirection: 'column',
+            }}
+        >
+            <div style={{
+                height: '44px',
+                padding: '0 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderBottom: '1px solid var(--glass-border)',
+                background: 'rgba(10,10,12,0.88)',
+                flexShrink: 0,
             }}>
-                {/* Remote Video */}
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                    {statusLabel}
+                </span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                        onClick={() => setIsMinimized(true)}
+                        className="icon-btn"
+                        style={{ width: '30px', height: '30px', backgroundColor: 'var(--bg-tertiary)' }}
+                    >
+                        <Minimize2 size={16} />
+                    </button>
+                    <button
+                        onClick={handleEndCall}
+                        className="icon-btn"
+                        style={{ width: '30px', height: '30px', backgroundColor: 'rgba(237,66,69,0.9)', color: 'white' }}
+                    >
+                        <PhoneOff size={16} />
+                    </button>
+                </div>
+            </div>
+
+            <div style={{ flex: 1, position: 'relative', backgroundColor: '#0a0b0d', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {remoteStream ? (
-                    <video playsInline ref={userVideo} autoPlay style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    <video playsInline ref={userVideo} autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
                         <div style={{
-                            width: '120px',
-                            height: '120px',
+                            width: '96px',
+                            height: '96px',
                             borderRadius: '50%',
                             backgroundColor: 'var(--bg-tertiary)',
-                            boxShadow: '0 0 40px var(--accent-glow)'
+                            boxShadow: '0 0 30px rgba(143, 152, 163, 0.22)'
                         }} />
-                        <h2 style={{ fontSize: '24px', fontWeight: 700 }}>
-                            {callStatus === 'initializing' && 'Initializing...'}
-                            {callStatus === 'calling' && 'Calling...'}
-                            {callStatus === 'incoming' && 'Incoming Call...'}
-                            {callStatus === 'connected' && 'Connecting...'}
-                            {callStatus === 'ended' && 'Call Ended'}
-                        </h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>{statusLabel}</h2>
                     </div>
                 )}
 
-                {/* Local Video (PIP) */}
+                {mediaWarning && (
+                    <div style={{
+                        position: 'absolute',
+                        left: '10px',
+                        right: '10px',
+                        top: '10px',
+                        fontSize: '12px',
+                        color: '#facc15',
+                        background: 'rgba(0,0,0,0.55)',
+                        borderRadius: '8px',
+                        padding: '6px 8px',
+                        textAlign: 'center',
+                        border: '1px solid rgba(250, 204, 21, 0.3)'
+                    }}>
+                        {mediaWarning}
+                    </div>
+                )}
+
                 <motion.div
                     drag
-                    dragConstraints={{ left: 0, right: 800, top: 0, bottom: 600 }}
+                    dragMomentum={false}
+                    dragConstraints={{ left: 0, right: 300, top: 0, bottom: 360 }}
                     style={{
                         position: 'absolute',
-                        bottom: '20px',
-                        right: '20px',
-                        width: '200px',
-                        height: '150px',
+                        bottom: '12px',
+                        right: '12px',
+                        width: '128px',
+                        height: '96px',
                         backgroundColor: '#000',
-                        borderRadius: '12px',
+                        borderRadius: '10px',
                         overflow: 'hidden',
-                        border: '2px solid var(--glass-border)',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                        border: '1px solid var(--glass-border)',
+                        boxShadow: '0 6px 16px rgba(0,0,0,0.5)'
                     }}
                 >
                     <video playsInline muted ref={myVideo} autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </motion.div>
-
-                {/* Hidden Audio Output for Amplification */}
-                <audio ref={audioOutputRef} style={{ display: 'none' }} />
-
-                {/* Controls */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: '30px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    display: 'flex',
-                    gap: '20px',
-                    padding: '16px 32px',
-                    backgroundColor: 'rgba(0,0,0,0.6)',
-                    backdropFilter: 'blur(10px)',
-                    borderRadius: '40px',
-                    border: '1px solid var(--glass-border)'
-                }}>
-                    {callStatus === 'incoming' ? (
-                        <>
-                            <button
-                                onClick={handleAcceptCall}
-                                className="icon-btn"
-                                style={{
-                                    backgroundColor: 'var(--success)',
-                                    width: '60px', height: '60px', borderRadius: '50%'
-                                }}
-                            >
-                                <Phone size={28} />
-                            </button>
-                            <button
-                                onClick={handleEndCall}
-                                className="icon-btn"
-                                style={{
-                                    backgroundColor: 'var(--error)',
-                                    width: '60px', height: '60px', borderRadius: '50%'
-                                }}
-                            >
-                                <PhoneOff size={28} />
-                            </button>
-                        </>
-                    ) : (
-                        <>
-                            <button
-                                onClick={toggleMute}
-                                className="icon-btn"
-                                style={{
-                                    backgroundColor: isMuted ? 'var(--error)' : 'var(--bg-tertiary)',
-                                    width: '50px', height: '50px', borderRadius: '50%'
-                                }}
-                            >
-                                {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
-                            </button>
-
-                            <button
-                                onClick={handleEndCall}
-                                className="icon-btn"
-                                style={{
-                                    backgroundColor: 'var(--error)',
-                                    width: '60px', height: '60px', borderRadius: '50%'
-                                }}
-                            >
-                                <PhoneOff size={28} />
-                            </button>
-
-                            <button
-                                onClick={toggleVideo}
-                                className="icon-btn"
-                                style={{
-                                    backgroundColor: isVideoOff ? 'var(--error)' : 'var(--bg-tertiary)',
-                                    width: '50px', height: '50px', borderRadius: '50%'
-                                }}
-                            >
-                                {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
-                            </button>
-
-                            <button
-                                onClick={() => setShowSettings(!showSettings)}
-                                className="icon-btn"
-                                style={{
-                                    backgroundColor: showSettings ? 'var(--accent)' : 'var(--bg-tertiary)',
-                                    width: '50px', height: '50px', borderRadius: '50%'
-                                }}
-                            >
-                                <Settings size={24} />
-                            </button>
-                        </>
-                    )}
-                </div>
-
-                {/* Top Controls */}
-                <div style={{
-                    position: 'absolute',
-                    top: '20px',
-                    right: '20px',
-                    display: 'flex',
-                    gap: '10px'
-                }}>
-                    <button
-                        onClick={() => setIsMinimized(true)}
-                        className="icon-btn"
-                        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-                    >
-                        <Minimize2 size={20} />
-                    </button>
-                </div>
-
-                {/* Settings Modal */}
-                <AnimatePresence>
-                    {showSettings && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                            style={{
-                                position: 'absolute',
-                                bottom: '110px',
-                                left: '50%',
-                                transform: 'translateX(-50%)',
-                                width: '320px',
-                                backgroundColor: 'var(--bg-secondary)',
-                                borderRadius: '16px',
-                                padding: '20px',
-                                border: '1px solid var(--glass-border)',
-                                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                                zIndex: 2001
-                            }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Call Settings</h3>
-                                <button onClick={() => setShowSettings(false)} className="icon-btn" style={{ width: '28px', height: '28px' }}>
-                                    <X size={16} />
-                                </button>
-                            </div>
-
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                {/* Remote Volume */}
-                                <div>
-                                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Phone size={14} /> REMOTE VOLUME</span>
-                                        <span>{Math.round(remoteVolume * 100)}%</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="2"
-                                        step="0.1"
-                                        value={remoteVolume}
-                                        onChange={(e) => setRemoteVolume(parseFloat(e.target.value))}
-                                        style={{ width: '100%', accentColor: 'var(--accent)' }}
-                                    />
-                                </div>
-
-                                {/* Camera */}
-                                <div>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                        <Video size={14} /> CAMERA
-                                    </label>
-                                    <select
-                                        value={selectedVideoInput}
-                                        onChange={(e) => switchMediaDevice('videoinput', e.target.value)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '8px',
-                                            borderRadius: '8px',
-                                            backgroundColor: 'var(--bg-tertiary)',
-                                            border: '1px solid var(--glass-border)',
-                                            color: 'white',
-                                            fontSize: '13px'
-                                        }}
-                                    >
-                                        {devices.filter(d => d.kind === 'videoinput').map(device => (
-                                            <option key={device.deviceId} value={device.deviceId}>
-                                                {device.label || `Camera ${device.deviceId.slice(0, 5)}...`}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Microphone */}
-                                <div>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                        <Mic size={14} /> MICROPHONE
-                                    </label>
-                                    <select
-                                        value={selectedAudioInput}
-                                        onChange={(e) => switchMediaDevice('audioinput', e.target.value)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '8px',
-                                            borderRadius: '8px',
-                                            backgroundColor: 'var(--bg-tertiary)',
-                                            border: '1px solid var(--glass-border)',
-                                            color: 'white',
-                                            fontSize: '13px'
-                                        }}
-                                    >
-                                        {devices.filter(d => d.kind === 'audioinput').map(device => (
-                                            <option key={device.deviceId} value={device.deviceId}>
-                                                {device.label || `Microphone ${device.deviceId.slice(0, 5)}...`}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Speaker */}
-                                <div>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                        <Phone size={14} /> SPEAKER
-                                    </label>
-                                    <select
-                                        value={selectedAudioOutput}
-                                        onChange={(e) => handleAudioOutputChange(e.target.value)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '8px',
-                                            borderRadius: '8px',
-                                            backgroundColor: 'var(--bg-tertiary)',
-                                            border: '1px solid var(--glass-border)',
-                                            color: 'white',
-                                            fontSize: '13px'
-                                        }}
-                                        disabled={!('setSinkId' in HTMLMediaElement.prototype)}
-                                    >
-                                        {devices.filter(d => d.kind === 'audiooutput').map(device => (
-                                            <option key={device.deviceId} value={device.deviceId}>
-                                                {device.label || `Speaker ${device.deviceId.slice(0, 5)}...`}
-                                            </option>
-                                        ))}
-                                        {!('setSinkId' in HTMLMediaElement.prototype) && (
-                                            <option disabled>Browser not supported</option>
-                                        )}
-                                    </select>
-                                </div>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
             </div>
-        </div>,
+
+            <div style={{
+                height: '64px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                padding: '0 10px',
+                borderTop: '1px solid var(--glass-border)',
+                background: 'rgba(10,10,12,0.92)',
+                flexShrink: 0,
+            }}>
+                {callStatus === 'incoming' ? (
+                    <>
+                        <button
+                            onClick={handleAcceptCall}
+                            className="icon-btn"
+                            style={{ backgroundColor: 'var(--success)', width: '44px', height: '44px', borderRadius: '50%', color: 'white' }}
+                        >
+                            <Phone size={20} />
+                        </button>
+                        <button
+                            onClick={handleEndCall}
+                            className="icon-btn"
+                            style={{ backgroundColor: 'var(--danger)', width: '44px', height: '44px', borderRadius: '50%', color: 'white' }}
+                        >
+                            <PhoneOff size={20} />
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button
+                            onClick={toggleMute}
+                            className="icon-btn"
+                            style={{ backgroundColor: isMuted ? 'var(--danger)' : 'var(--bg-tertiary)', width: '42px', height: '42px', borderRadius: '50%' }}
+                        >
+                            {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+                        </button>
+
+                        <button
+                            onClick={handleEndCall}
+                            className="icon-btn"
+                            style={{ backgroundColor: 'var(--danger)', width: '46px', height: '46px', borderRadius: '50%', color: 'white' }}
+                        >
+                            <PhoneOff size={20} />
+                        </button>
+
+                        <button
+                            onClick={toggleVideo}
+                            className="icon-btn"
+                            style={{ backgroundColor: isVideoOff ? 'var(--danger)' : 'var(--bg-tertiary)', width: '42px', height: '42px', borderRadius: '50%' }}
+                        >
+                            {isVideoOff ? <VideoOff size={18} /> : <Video size={18} />}
+                        </button>
+
+                        <button
+                            onClick={() => setShowSettings(!showSettings)}
+                            className="icon-btn"
+                            style={{ backgroundColor: showSettings ? 'var(--accent)' : 'var(--bg-tertiary)', width: '42px', height: '42px', borderRadius: '50%' }}
+                        >
+                            <Settings size={18} />
+                        </button>
+                    </>
+                )}
+            </div>
+
+            {/* Hidden Audio Output for Amplification */}
+            <audio ref={audioOutputRef} style={{ display: 'none' }} />
+
+            {/* Settings Modal */}
+            <AnimatePresence>
+                {showSettings && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                        style={{
+                            position: 'absolute',
+                            bottom: '72px',
+                            left: '10px',
+                            right: '10px',
+                            maxHeight: '60%',
+                            overflowY: 'auto',
+                            backgroundColor: 'var(--bg-secondary)',
+                            borderRadius: '12px',
+                            padding: '14px',
+                            border: '1px solid var(--glass-border)',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                            zIndex: 5100
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>Call Settings</h3>
+                            <button onClick={() => setShowSettings(false)} className="icon-btn" style={{ width: '28px', height: '28px' }}>
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            <div>
+                                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Phone size={13} /> REMOTE VOLUME</span>
+                                    <span>{Math.round(remoteVolume * 100)}%</span>
+                                </label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="2"
+                                    step="0.1"
+                                    value={remoteVolume}
+                                    onChange={(e) => setRemoteVolume(parseFloat(e.target.value))}
+                                    style={{ width: '100%', accentColor: 'var(--accent)' }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                    <Video size={13} /> CAMERA
+                                </label>
+                                <select
+                                    value={selectedVideoInput}
+                                    onChange={(e) => switchMediaDevice('videoinput', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '7px 8px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'var(--bg-tertiary)',
+                                        border: '1px solid var(--glass-border)',
+                                        color: 'white',
+                                        fontSize: '12px'
+                                    }}
+                                >
+                                    {devices.filter(d => d.kind === 'videoinput').map(device => (
+                                        <option key={device.deviceId} value={device.deviceId}>
+                                            {device.label || `Camera ${device.deviceId.slice(0, 5)}...`}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                    <Mic size={13} /> MICROPHONE
+                                </label>
+                                <select
+                                    value={selectedAudioInput}
+                                    onChange={(e) => switchMediaDevice('audioinput', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '7px 8px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'var(--bg-tertiary)',
+                                        border: '1px solid var(--glass-border)',
+                                        color: 'white',
+                                        fontSize: '12px'
+                                    }}
+                                >
+                                    {devices.filter(d => d.kind === 'audioinput').map(device => (
+                                        <option key={device.deviceId} value={device.deviceId}>
+                                            {device.label || `Microphone ${device.deviceId.slice(0, 5)}...`}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                    <Phone size={13} /> SPEAKER
+                                </label>
+                                <select
+                                    value={selectedAudioOutput}
+                                    onChange={(e) => handleAudioOutputChange(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '7px 8px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'var(--bg-tertiary)',
+                                        border: '1px solid var(--glass-border)',
+                                        color: 'white',
+                                        fontSize: '12px'
+                                    }}
+                                    disabled={!('setSinkId' in HTMLMediaElement.prototype)}
+                                >
+                                    {devices.filter(d => d.kind === 'audiooutput').map(device => (
+                                        <option key={device.deviceId} value={device.deviceId}>
+                                            {device.label || `Speaker ${device.deviceId.slice(0, 5)}...`}
+                                        </option>
+                                    ))}
+                                    {!('setSinkId' in HTMLMediaElement.prototype) && (
+                                        <option disabled>Browser not supported</option>
+                                    )}
+                                </select>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </motion.div>,
         document.body
     );
 }
