@@ -5,6 +5,7 @@ import { X, Shield, Users, Flag, Ban, Trash2, Search } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, deleteDoc, orderBy, onSnapshot, getDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { appAlert, appConfirm } from '../utils/dialogService';
 
 export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
     const [activeTab, setActiveTab] = useState('reports');
@@ -49,7 +50,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
             const snapshot = await getDocs(q);
 
             if (snapshot.empty) {
-                alert("User not found with that email.");
+                await appAlert("User not found with that email.", { title: 'User Not Found' });
                 return;
             }
 
@@ -58,19 +59,23 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
                 superAdminTeam: true
             });
 
-            alert("User added to Super Admin Team.");
+            await appAlert("User added to Super Admin Team.", { title: 'Team Updated' });
             setInviteEmail('');
             // Refresh team list
             const newTeam = [...teamMembers, { id: userDoc.id, ...userDoc.data(), superAdminTeam: true }];
             setTeamMembers(newTeam);
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error inviting team member:", error);
-            alert("Failed to add team member.");
+            await appAlert("Failed to add team member.", { title: 'Update Failed', danger: true });
         }
     };
 
     const handleRemoveTeam = async (userId) => {
-        if (!confirm("Remove this user from the Super Admin Team?")) return;
+        const confirmed = await appConfirm(
+            "Remove this user from the Super Admin Team?",
+            { title: 'Remove Team Member', confirmText: 'Remove', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             await updateDoc(doc(db, "users", userId), {
                 superAdminTeam: false
@@ -98,7 +103,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
                     setFoundUser({ id: docSnap.id, ...docSnap.data() });
                 } else {
                     setFoundUser(null);
-                    alert("User not found.");
+                    await appAlert("User not found.", { title: 'User Not Found' });
                 }
             } else {
                 setFoundUser({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
@@ -110,7 +115,11 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
 
     const handleGlobalBan = async (userId, isBanned) => {
         const action = isBanned ? "unban" : "ban";
-        if (!confirm(`Are you sure you want to ${action} this user globally?`)) return;
+        const confirmed = await appConfirm(
+            `Are you sure you want to ${action} this user globally?`,
+            { title: `${action === 'ban' ? 'Ban' : 'Unban'} User`, confirmText: action === 'ban' ? 'Ban User' : 'Unban User', cancelText: 'Cancel', danger: action === 'ban' }
+        );
+        if (!confirmed) return;
 
         try {
             await updateDoc(doc(db, "users", userId), {
@@ -119,7 +128,7 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
             if (foundUser && foundUser.id === userId) {
                 setFoundUser({ ...foundUser, globalBan: !isBanned });
             }
-            alert(`User ${action}ned successfully.`);
+            await appAlert(`User ${action}ned successfully.`, { title: 'User Updated' });
         } catch (error) {
             if (import.meta.env.DEV) console.error(`Error ${action}ning user:`, error);
         }
@@ -136,12 +145,16 @@ export default function SuperAdminModal({ isOpen, onClose, isMobile }) {
     };
 
     const handleDeleteContent = async (report) => {
-        if (!confirm("Delete the reported content?")) return;
+        const confirmed = await appConfirm(
+            "Delete the reported content?",
+            { title: 'Delete Content', confirmText: 'Delete', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             if (report.type === 'message') {
                 await deleteDoc(doc(db, "messages", report.targetId));
                 await updateDoc(doc(db, "reports", report.id), { status: 'resolved', actionTaken: 'deleted' });
-                alert("Content deleted.");
+                await appAlert("Content deleted.", { title: 'Content Removed' });
             }
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error deleting content:", error);
