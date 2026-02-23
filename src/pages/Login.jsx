@@ -1,23 +1,43 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Loader, MessageCircle, Sparkles, Zap, Shield, Users } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import LegalDocumentsModal, { TERMS_VERSION } from '../components/LegalDocumentsModal';
 import './Login.css';
 
-async function syncUserToFirestore(user) {
+const LEGAL_ACCEPTANCE_KEY = 'gravity_legal_acceptance_version';
+const SIGNIN_RATE_KEY = 'gravity_signin_rate_window';
+const SIGNIN_WINDOW_MS = 10 * 60 * 1000;
+const SIGNIN_MAX_ATTEMPTS = 6;
+
+async function syncUserToFirestore(user, { legalAccepted = false } = {}) {
     const { doc, setDoc, getFirestore, serverTimestamp } = await import('firebase/firestore');
     const db = getFirestore();
+    const payload = {
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+        lastSeen: serverTimestamp(),
+        security: {
+            authProvider: 'google',
+            lastLoginAt: serverTimestamp(),
+            appCheckEnabled: Boolean(import.meta.env.VITE_RECAPTCHA_SITE_KEY),
+        },
+    };
+
+    if (legalAccepted) {
+        payload.legal = {
+            acceptedVersion: TERMS_VERSION,
+            acceptedAt: serverTimestamp(),
+        };
+    }
+
     await setDoc(
         doc(db, 'users', user.uid),
-        {
-            uid: user.uid,
-            displayName: user.displayName,
-            email: user.email,
-            photoURL: user.photoURL,
-            lastSeen: serverTimestamp()
-        },
+        payload,
         { merge: true }
     );
 }
@@ -31,6 +51,45 @@ function getKnownAccounts() {
     }
 }
 
+function readSignInRateWindow() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(SIGNIN_RATE_KEY) || 'null');
+        if (!parsed || typeof parsed !== 'object') return { startedAt: Date.now(), count: 0 };
+        if (typeof parsed.startedAt !== 'number' || typeof parsed.count !== 'number') {
+            return { startedAt: Date.now(), count: 0 };
+        }
+        return parsed;
+    } catch {
+        return { startedAt: Date.now(), count: 0 };
+    }
+}
+
+function updateSignInRateWindow(state) {
+    localStorage.setItem(SIGNIN_RATE_KEY, JSON.stringify(state));
+}
+
+function recordSignInAttempt() {
+    const now = Date.now();
+    const current = readSignInRateWindow();
+    const withinWindow = (now - current.startedAt) < SIGNIN_WINDOW_MS;
+    const next = withinWindow
+        ? { startedAt: current.startedAt, count: current.count + 1 }
+        : { startedAt: now, count: 1 };
+    updateSignInRateWindow(next);
+}
+
+function getSignInBlockRemainingMs() {
+    const now = Date.now();
+    const current = readSignInRateWindow();
+    if ((now - current.startedAt) >= SIGNIN_WINDOW_MS) return 0;
+    if (current.count < SIGNIN_MAX_ATTEMPTS) return 0;
+    return SIGNIN_WINDOW_MS - (now - current.startedAt);
+}
+
+function clearSignInRateWindow() {
+    localStorage.removeItem(SIGNIN_RATE_KEY);
+}
+
 const features = [
     { icon: Zap, text: 'Motion-rich interface tuned for desktop and mobile.' },
     { icon: Shield, text: 'Sharp contrast, less visual noise, and a clean accent system.' },
@@ -40,18 +99,57 @@ const features = [
 export default function Login() {
     const [error, setError] = useState('');
     const [isSigningIn, setIsSigningIn] = useState(false);
+    const [showLegalModal, setShowLegalModal] = useState(false);
+    const [legalTab, setLegalTab] = useState('tos');
+    const [acceptedLegal, setAcceptedLegal] = useState(() => {
+        try {
+            return localStorage.getItem(LEGAL_ACCEPTANCE_KEY) === TERMS_VERSION;
+        } catch {
+            return false;
+        }
+    });
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const navigate = useNavigate();
     const knownAccounts = useMemo(() => getKnownAccounts(), []);
+
+    useEffect(() => {
+        const onResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    const setLegalAccepted = (next) => {
+        setAcceptedLegal(next);
+        try {
+            if (next) localStorage.setItem(LEGAL_ACCEPTANCE_KEY, TERMS_VERSION);
+            else localStorage.removeItem(LEGAL_ACCEPTANCE_KEY);
+        } catch (_) { }
+    };
 
     const signIn = async (loginHint) => {
         if (isSigningIn) return;
         setError('');
+
+        if (!acceptedLegal) {
+            setError('Please accept the Terms of Service and Privacy Policy before signing in.');
+            return;
+        }
+
+        const blockRemainingMs = getSignInBlockRemainingMs();
+        if (blockRemainingMs > 0) {
+            const remainingMinutes = Math.max(1, Math.ceil(blockRemainingMs / 60000));
+            setError(`Too many sign-in attempts. Try again in about ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''}.`);
+            return;
+        }
+
+        recordSignInAttempt();
         setIsSigningIn(true);
         try {
             const provider = new GoogleAuthProvider();
             if (loginHint) provider.setCustomParameters({ login_hint: loginHint });
             const result = await signInWithPopup(auth, provider);
-            await syncUserToFirestore(result.user);
+            clearSignInRateWindow();
+            await syncUserToFirestore(result.user, { legalAccepted: true });
             navigate('/');
         } catch (err) {
             if (import.meta.env.DEV) console.error('Sign-In Error:', err);
@@ -222,6 +320,39 @@ export default function Login() {
                         )}
                     </motion.button>
 
+                    <label className="login-legal-consent">
+                        <input
+                            type="checkbox"
+                            checked={acceptedLegal}
+                            onChange={(event) => setLegalAccepted(event.target.checked)}
+                        />
+                        <span>
+                            I agree to the{' '}
+                            <button
+                                type="button"
+                                className="login-footnote-link"
+                                onClick={() => {
+                                    setLegalTab('tos');
+                                    setShowLegalModal(true);
+                                }}
+                            >
+                                Terms of Service
+                            </button>
+                            {' '}and{' '}
+                            <button
+                                type="button"
+                                className="login-footnote-link"
+                                onClick={() => {
+                                    setLegalTab('privacy');
+                                    setShowLegalModal(true);
+                                }}
+                            >
+                                Privacy Policy
+                            </button>
+                            .
+                        </span>
+                    </label>
+
                     {/* Quick Account Switch */}
                     {knownAccounts.length > 0 && (
                         <div className="login-account-switcher">
@@ -269,6 +400,13 @@ export default function Login() {
                     </p>
                 </motion.section>
             </motion.main>
+
+            <LegalDocumentsModal
+                isOpen={showLegalModal}
+                onClose={() => setShowLegalModal(false)}
+                initialTab={legalTab}
+                mobile={isMobile}
+            />
         </div>
     );
 }
