@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Edit3, Trash2, Smile, Flag, Download, FileText, Reply, Pin, CornerUpRight, Copy, Check } from 'lucide-react';
 import { useEmoji } from '../context/EmojiContext';
 import { QUICK_REACTIONS } from '../utils/constants';
 import userAvatar from '../assets/user_avatar.png';
+import { resolveAvatarUrl } from '../utils/avatarUrl';
 
 // Group threshold: 7 minutes
 const GROUP_THRESHOLD_MS = 7 * 60 * 1000;
 
-export default function Message({ message, prevMessage, currentUser, onEdit, onDelete, onReply, onReport, onViewProfile, onImageClick, onReact, onPin, canModerate, onScrollToMessage }) {
+export default function Message({ message, prevMessage, currentUser, onEdit, onDelete, onReply, onReport, onViewProfile, onRightClickProfile, onImageClick, onReact, onPin, canModerate, onScrollToMessage }) {
     // Determine if this is a grouped (compact) message
     const isGrouped = (() => {
         if (!prevMessage || message.replyTo) return false;
@@ -21,7 +22,12 @@ export default function Message({ message, prevMessage, currentUser, onEdit, onD
     const [showReactionPicker, setShowReactionPicker] = useState(false);
     const [revealedSpoilers, setRevealedSpoilers] = useState(new Set());
     const [copied, setCopied] = useState(false);
+    const [avatarSrc, setAvatarSrc] = useState(() => resolveAvatarUrl(message.photoURL) || userAvatar);
     const { customEmojis } = useEmoji();
+
+    useEffect(() => {
+        setAvatarSrc(resolveAvatarUrl(message.photoURL) || userAvatar);
+    }, [message.photoURL]);
 
     const isOwnMessage = message.uid === currentUser.uid;
 
@@ -46,7 +52,7 @@ export default function Message({ message, prevMessage, currentUser, onEdit, onD
         if (!message.text) return;
         // Convert <@Name> back to @Name for clipboard
         const plainText = message.text.replace(/<@([^>]+)>/g, '@$1');
-        navigator.clipboard.writeText(plainText).catch(() => {});
+        navigator.clipboard.writeText(plainText).catch(() => { });
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -363,11 +369,23 @@ export default function Message({ message, prevMessage, currentUser, onEdit, onD
                 </div>
             ) : (
                 <img
-                    src={message.photoURL || userAvatar}
+                    src={avatarSrc}
                     alt={message.displayName}
+                    referrerPolicy="no-referrer"
                     onClick={() => onViewProfile(message.uid, message.displayName, message.photoURL)}
-                    onError={(e) => { e.target.src = userAvatar; }}
+                    onContextMenu={(e) => {
+                        if (onRightClickProfile) {
+                            e.preventDefault();
+                            onRightClickProfile(message.uid);
+                        }
+                    }}
+                    onError={() => {
+                        if (avatarSrc !== userAvatar) {
+                            setAvatarSrc(userAvatar);
+                        }
+                    }}
                     style={{ width: '40px', height: '40px', borderRadius: '50%', cursor: 'pointer', objectFit: 'cover', flexShrink: 0 }}
+                    title={message.uid === currentUser.uid ? "Left click: View Profile | Right click: Edit Profile" : "View Profile"}
                 />
             )}
 
@@ -393,21 +411,28 @@ export default function Message({ message, prevMessage, currentUser, onEdit, onD
 
                 {/* Author + timestamp (hidden in grouped mode) */}
                 {!isGrouped && (
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
-                    <span
-                        onClick={() => onViewProfile(message.uid, message.displayName, message.photoURL)}
-                        style={{ fontWeight: 700, color: isOwnMessage ? '#c084fc' : 'var(--text-primary)', cursor: 'pointer', fontSize: '14px' }}
-                    >
-                        {message.displayName}
-                    </span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{formatTime(message.createdAt)}</span>
-                    {message.edited && <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontStyle: 'italic' }}>(edited)</span>}
-                    {message.pinned && (
-                        <span style={{ fontSize: '10px', color: '#facc15', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <Pin size={10} /> pinned
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
+                        <span
+                            onClick={() => onViewProfile(message.uid, message.displayName, message.photoURL)}
+                            onContextMenu={(e) => {
+                                if (onRightClickProfile) {
+                                    e.preventDefault();
+                                    onRightClickProfile(message.uid);
+                                }
+                            }}
+                            style={{ fontWeight: 700, color: isOwnMessage ? '#c084fc' : 'var(--text-primary)', cursor: 'pointer', fontSize: '14px' }}
+                            title={isOwnMessage ? "Left click: View Profile | Right click: Edit Profile" : "View Profile"}
+                        >
+                            {message.displayName}
                         </span>
-                    )}
-                </div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{formatTime(message.createdAt)}</span>
+                        {message.edited && <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontStyle: 'italic' }}>(edited)</span>}
+                        {message.pinned && (
+                            <span style={{ fontSize: '10px', color: '#facc15', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <Pin size={10} /> pinned
+                            </span>
+                        )}
+                    </div>
                 )}
 
                 {/* Message body */}
