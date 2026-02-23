@@ -6,9 +6,11 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import userAvatar from '../assets/user_avatar.png';
 import { useEmoji } from '../context/EmojiContext';
+import { resolveAvatarUrl } from '../utils/avatarUrl';
 
 export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
     const [fullProfile, setFullProfile] = useState(user);
+    const [avatarError, setAvatarError] = useState(false);
     const { customEmojis } = useEmoji();
 
     useEffect(() => {
@@ -28,6 +30,10 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
         }
     }, [isOpen, user]);
 
+    useEffect(() => {
+        setAvatarError(false);
+    }, [isOpen, fullProfile?.photoURL, user?.photoURL]);
+
     if (!isOpen || !user) return null;
 
     const formatDate = (timestamp) => {
@@ -39,6 +45,8 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
 
     // Use fullProfile for rendering, fallback to user prop if needed
     const displayUser = fullProfile || user;
+    const resolvedAvatar = resolveAvatarUrl(displayUser?.photoURL);
+    const avatarSrc = !avatarError && resolvedAvatar ? resolvedAvatar : userAvatar;
 
     const renderTextWithEmojis = (text) => {
         if (!text) return null;
@@ -86,18 +94,21 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                     }}
                 >
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                        initial={{ opacity: 0, scale: 0.8, y: 50, rotateX: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0, rotateX: 0 }}
+                        exit={{ opacity: 0, scale: 0.9, y: 20, rotateX: -10 }}
+                        transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                        className={isMobile ? "" : "glass-panel liquid-panel"}
                         style={{
                             width: isMobile ? '100%' : '600px',
                             maxWidth: '100%',
                             backgroundColor: displayUser.profileTheme || 'var(--bg-secondary)',
                             borderRadius: isMobile ? '0' : '16px',
                             border: isMobile ? 'none' : '1px solid var(--glass-border)',
-                            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+                            boxShadow: 'var(--shadow-lg), 0 0 40px rgba(168, 85, 247, 0.15)',
                             overflow: 'hidden',
-                            position: 'relative'
+                            position: 'relative',
+                            color: 'white'
                         }}
                     >
                         {/* Banner */}
@@ -124,7 +135,18 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     color: 'white',
-                                    cursor: 'pointer'
+                                    cursor: 'pointer',
+                                    transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'scale(1.1) rotate(90deg)';
+                                    e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.8)';
+                                    e.currentTarget.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.6)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'scale(1) rotate(0deg)';
+                                    e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                                    e.currentTarget.style.boxShadow = 'none';
                                 }}
                             >
                                 <X size={20} />
@@ -140,13 +162,18 @@ export default function UserProfileModal({ isOpen, onClose, user, isMobile }) {
                                 borderRadius: '50%',
                                 border: `6px solid ${displayUser.profileTheme || 'var(--bg-secondary)'}`,
                                 backgroundColor: 'var(--bg-tertiary)',
-                                backgroundImage: `url(${displayUser.photoURL || userAvatar})`,
-                                backgroundSize: 'cover',
-                                backgroundPosition: 'center',
                                 marginTop: '-60px',
                                 marginBottom: '16px',
-                                position: 'relative'
+                                position: 'relative',
+                                overflow: 'hidden',
                             }}>
+                                <img
+                                    src={avatarSrc}
+                                    alt={displayUser.displayName || 'User avatar'}
+                                    referrerPolicy="no-referrer"
+                                    onError={() => setAvatarError(true)}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
                                 <div style={{
                                     position: 'absolute',
                                     bottom: '4px',
