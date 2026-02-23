@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, MessageCircle, Settings, Compass, LogOut, GitBranch } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../lib/firebase';
@@ -11,6 +12,23 @@ import SuperAdminModal from './SuperAdminModal';
 import UpdateCenterModal from './UpdateCenterModal';
 import { isSuperAdmin, isServerOwner, isUpdateCenterUser } from '../utils/permissions';
 import serverPlaceholder from '../assets/server_placeholder.png';
+import { appAlert, appConfirm } from '../utils/dialogService';
+
+const CONTEXT_MENU_WIDTH = 190;
+const CONTEXT_MENU_HEIGHT = 120;
+const CONTEXT_MENU_MARGIN = 8;
+
+const clampContextMenuPosition = (x, y) => {
+    if (typeof window === 'undefined') return { x, y };
+
+    const maxX = Math.max(CONTEXT_MENU_MARGIN, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_MARGIN);
+    const maxY = Math.max(CONTEXT_MENU_MARGIN, window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_MARGIN);
+
+    return {
+        x: Math.max(CONTEXT_MENU_MARGIN, Math.min(x, maxX)),
+        y: Math.max(CONTEXT_MENU_MARGIN, Math.min(y, maxY)),
+    };
+};
 
 /* =========================================================
    TOOLTIP WRAPPER — shows a label to the right of the icon
@@ -214,13 +232,23 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
 
     const handleContextMenu = (e, serverId) => {
         e.preventDefault();
-        setContextMenu({ x: e.clientX, y: e.clientY, serverId });
+        const { x, y } = clampContextMenuPosition(e.clientX, e.clientY);
+        setContextMenu({ x, y, serverId });
     };
 
     useEffect(() => {
         const handleClick = () => setContextMenu(null);
         window.addEventListener('click', handleClick);
-        return () => window.removeEventListener('click', handleClick);
+        window.addEventListener('resize', handleClick);
+        window.addEventListener('blur', handleClick);
+        window.addEventListener('scroll', handleClick, true);
+
+        return () => {
+            window.removeEventListener('click', handleClick);
+            window.removeEventListener('resize', handleClick);
+            window.removeEventListener('blur', handleClick);
+            window.removeEventListener('scroll', handleClick, true);
+        };
     }, []);
 
     useEffect(() => {
@@ -240,11 +268,15 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
     }, [currentUser?.uid]);
 
     const handleLeaveServer = async (serverId) => {
-        if (!confirm('Are you sure you want to leave this server?')) return;
+        const confirmed = await appConfirm(
+            'Are you sure you want to leave this server?',
+            { title: 'Leave Server', confirmText: 'Leave', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             const serverDoc = await getDoc(doc(db, 'servers', serverId));
             if (serverDoc.exists() && isServerOwner(currentUser, serverDoc.data())) {
-                alert('You cannot leave a server you own. Please delete it or transfer ownership first.');
+                await appAlert('You cannot leave a server you own. Please delete it or transfer ownership first.', { title: 'Action Blocked' });
                 return;
             }
             await deleteDoc(doc(db, 'servers', serverId, 'members', currentUser.uid));
@@ -253,64 +285,67 @@ export default function Sidebar({ activeServerId, setActiveServerId, isMobileVie
             setContextMenu(null);
         } catch (error) {
             if (import.meta.env.DEV) console.error('Error leaving server:', error);
-            alert('Failed to leave server.');
+            await appAlert('Failed to leave server.', { title: 'Leave Failed', danger: true });
         }
     };
 
-    const contextMenuContent = (
-        <AnimatePresence>
-            {contextMenu && (
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.88, y: -6 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.88, y: -4 }}
-                    transition={{ duration: 0.15, ease: 'easeOut' }}
-                    style={{
-                        position: 'fixed',
-                        top: contextMenu.y,
-                        left: contextMenu.x,
-                        background: 'rgba(13, 8, 26, 0.96)',
-                        backdropFilter: 'blur(20px)',
-                        padding: '8px',
-                        borderRadius: '14px',
-                        boxShadow: '0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(168,85,247,0.18)',
-                        border: '1px solid rgba(168,85,247,0.18)',
-                        zIndex: 2000,
-                        minWidth: '170px',
-                    }}
-                >
-                    <button
-                        className="liquid-context-action"
-                        onClick={() => { setSettingsServerId(contextMenu.serverId); setIsSettingsOpen(true); setContextMenu(null); }}
+    const contextMenuContent = typeof document !== 'undefined'
+        ? createPortal(
+            <AnimatePresence>
+                {contextMenu && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.88, y: -6 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.88, y: -4 }}
+                        transition={{ duration: 0.15, ease: 'easeOut' }}
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '10px',
-                            width: '100%', padding: '10px 12px', textAlign: 'left',
-                            background: 'transparent', border: 'none',
-                            color: 'var(--text-primary)', cursor: 'pointer',
-                            fontSize: '14px', fontWeight: 600, borderRadius: '8px',
+                            position: 'fixed',
+                            top: contextMenu.y,
+                            left: contextMenu.x,
+                            background: 'rgba(13, 8, 26, 0.96)',
+                            backdropFilter: 'blur(20px)',
+                            padding: '8px',
+                            borderRadius: '14px',
+                            boxShadow: '0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(168,85,247,0.18)',
+                            border: '1px solid rgba(168,85,247,0.18)',
+                            zIndex: 11000,
+                            minWidth: '170px',
                         }}
                     >
-                        <Settings size={16} color="#a855f7" />
-                        Server Settings
-                    </button>
-                    <button
-                        className="liquid-context-action"
-                        onClick={() => handleLeaveServer(contextMenu.serverId)}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '10px',
-                            width: '100%', padding: '10px 12px', textAlign: 'left',
-                            background: 'transparent', border: 'none',
-                            color: 'var(--danger)', cursor: 'pointer',
-                            fontSize: '14px', fontWeight: 600, borderRadius: '8px',
-                        }}
-                    >
-                        <LogOut size={16} />
-                        Leave Server
-                    </button>
-                </motion.div>
-            )}
-        </AnimatePresence>
-    );
+                        <button
+                            className="liquid-context-action"
+                            onClick={() => { setSettingsServerId(contextMenu.serverId); setIsSettingsOpen(true); setContextMenu(null); }}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '10px',
+                                width: '100%', padding: '10px 12px', textAlign: 'left',
+                                background: 'transparent', border: 'none',
+                                color: 'var(--text-primary)', cursor: 'pointer',
+                                fontSize: '14px', fontWeight: 600, borderRadius: '8px',
+                            }}
+                        >
+                            <Settings size={16} color="#a855f7" />
+                            Server Settings
+                        </button>
+                        <button
+                            className="liquid-context-action"
+                            onClick={() => handleLeaveServer(contextMenu.serverId)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '10px',
+                                width: '100%', padding: '10px 12px', textAlign: 'left',
+                                background: 'transparent', border: 'none',
+                                color: 'var(--danger)', cursor: 'pointer',
+                                fontSize: '14px', fontWeight: 600, borderRadius: '8px',
+                            }}
+                        >
+                            <LogOut size={16} />
+                            Leave Server
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>,
+            document.body
+        )
+        : null;
 
     /* ——————— Mobile layout ——————— */
     if (isMobileView) {
