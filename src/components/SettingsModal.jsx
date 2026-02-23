@@ -29,6 +29,8 @@ import { storage } from '../lib/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { useEmoji } from '../context/EmojiContext';
 import { customEmojis as hardcodedEmojis } from '../utils/customEmojis'; // Keep for fallback or migration
+import { appConfirm } from '../utils/dialogService';
+import LegalDocumentsModal from './LegalDocumentsModal';
 
 export default function SettingsModal({ isOpen, onClose, initialTab }) {
     const { currentUser, updateUserStatus } = useAuth();
@@ -56,6 +58,8 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState(null);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    const [showLegalModal, setShowLegalModal] = useState(false);
+    const [legalTab, setLegalTab] = useState('tos');
 
     // Emoji Upload State
     const [emojiFile, setEmojiFile] = useState(null);
@@ -230,7 +234,11 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
     };
 
     const handleDeleteAccount = async () => {
-        if (!window.confirm('Are you sure you want to delete your account? This cannot be undone.')) return;
+        const confirmed = await appConfirm(
+            'Are you sure you want to delete your account? This cannot be undone.',
+            { title: 'Delete Account', confirmText: 'Delete Account', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
 
         const user = auth.currentUser;
         if (!user) return;
@@ -278,6 +286,7 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 20 }}
                         transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                        className={isMobile ? "" : "glass-panel liquid-panel"}
                         style={{
                             width: isMobile ? '100%' : '90%',
                             maxWidth: isMobile ? '100%' : '600px',
@@ -1258,6 +1267,30 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                                                     Messages are encrypted in transit.
                                                     By using Gravity, you agree to our Terms of Service and Community Guidelines.
                                                 </p>
+                                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '14px' }}>
+                                                    <button
+                                                        type="button"
+                                                        className="secondary-button"
+                                                        style={{ fontSize: '12px', padding: '6px 10px' }}
+                                                        onClick={() => {
+                                                            setLegalTab('tos');
+                                                            setShowLegalModal(true);
+                                                        }}
+                                                    >
+                                                        View Full Terms
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="secondary-button"
+                                                        style={{ fontSize: '12px', padding: '6px 10px' }}
+                                                        onClick={() => {
+                                                            setLegalTab('privacy');
+                                                            setShowLegalModal(true);
+                                                        }}
+                                                    >
+                                                        View Full Privacy Policy
+                                                    </button>
+                                                </div>
                                             </div>
                                         </motion.div>
                                     )}
@@ -1373,6 +1406,13 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                             )}
                         </AnimatePresence >
                     </motion.div >
+
+                    <LegalDocumentsModal
+                        isOpen={showLegalModal}
+                        onClose={() => setShowLegalModal(false)}
+                        initialTab={legalTab}
+                        mobile={isMobile}
+                    />
                 </motion.div >
             )}
         </AnimatePresence >,
