@@ -6,6 +6,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, arrayUnion, serverTimestamp, setDoc, limit, orderBy, startAfter } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { SERVERS_PER_PAGE } from '../utils/constants';
+import { appAlert } from '../utils/dialogService';
 
 export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile }) {
     const [searchTerm, setSearchTerm] = useState('');
@@ -92,7 +93,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
             onClose();
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error joining server:", error);
-            alert("Failed to join server.");
+            await appAlert("Failed to join server.", { title: 'Join Failed', danger: true });
         } finally {
             setLoading(false);
         }
@@ -107,7 +108,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
             const snapshot = await getDocs(q);
 
             if (snapshot.empty) {
-                alert("Invalid invite code");
+                await appAlert("Invalid invite code.", { title: 'Invalid Invite' });
                 setLoading(false);
                 return;
             }
@@ -116,7 +117,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
             await handleJoin(server);
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error joining by code:", error);
-            alert("Error joining server");
+            await appAlert("Error joining server.", { title: 'Join Failed', danger: true });
             setLoading(false);
         }
     };
