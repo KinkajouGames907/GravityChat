@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import userAvatar from '../assets/user_avatar.png';
+import { resolveAvatarUrl } from '../utils/avatarUrl';
+import { appConfirm } from '../utils/dialogService';
 
 const getStatusColor = (status) => {
     switch (status) {
@@ -23,6 +25,52 @@ const getStatusLabel = (status) => {
         default: return 'Offline';
     }
 };
+
+function AvatarCircle({ photoURL, displayName, size = 40 }) {
+    const [avatarError, setAvatarError] = useState(false);
+    const resolvedPhotoURL = resolveAvatarUrl(photoURL);
+
+    useEffect(() => {
+        setAvatarError(false);
+    }, [resolvedPhotoURL]);
+
+    const hasPhoto = !!resolvedPhotoURL && !avatarError;
+    const fallbackInitial = (displayName || 'U').trim().charAt(0).toUpperCase();
+
+    return (
+        <div style={{
+            width: `${size}px`,
+            height: `${size}px`,
+            borderRadius: '50%',
+            backgroundColor: 'var(--bg-tertiary)',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-primary)',
+            fontWeight: 700,
+            fontSize: `${Math.max(11, Math.floor(size * 0.35))}px`
+        }}>
+            {hasPhoto ? (
+                <img
+                    src={resolvedPhotoURL}
+                    alt={displayName || 'User avatar'}
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarError(true)}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+            ) : (
+                fallbackInitial || (
+                    <img
+                        src={userAvatar}
+                        alt="Default avatar"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                )
+            )}
+        </div>
+    );
+}
 
 export default function FriendList({ onStartDM }) {
     const { currentUser } = useAuth();
@@ -181,7 +229,11 @@ export default function FriendList({ onStartDM }) {
     };
 
     const removeFriend = async (friendUid) => {
-        if (!window.confirm("Are you sure you want to remove this friend?")) return;
+        const confirmed = await appConfirm(
+            "Are you sure you want to remove this friend?",
+            { title: 'Remove Friend', confirmText: 'Remove', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             await deleteDoc(doc(db, "users", currentUser.uid, "friends", friendUid));
             await deleteDoc(doc(db, "users", friendUid, "friends", currentUser.uid));
@@ -191,7 +243,11 @@ export default function FriendList({ onStartDM }) {
     };
 
     const blockUser = async (friendUid) => {
-        if (!window.confirm("Are you sure you want to block this user?")) return;
+        const confirmed = await appConfirm(
+            "Are you sure you want to block this user?",
+            { title: 'Block User', confirmText: 'Block', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             await setDoc(doc(db, "users", currentUser.uid, "friends", friendUid), {
                 status: 'blocked',
@@ -434,14 +490,7 @@ export default function FriendList({ onStartDM }) {
                                         }}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <div style={{
-                                                width: '40px',
-                                                height: '40px',
-                                                borderRadius: '50%',
-                                                backgroundColor: 'var(--bg-tertiary)',
-                                                backgroundImage: `url(${req.photoURL || userAvatar})`,
-                                                backgroundSize: 'cover'
-                                            }} />
+                                            <AvatarCircle photoURL={req.photoURL} displayName={req.displayName} size={40} />
                                             <div>
                                                 <div style={{ fontWeight: 600, fontSize: '15px' }}>{req.displayName}</div>
                                                 <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -577,14 +626,7 @@ export default function FriendList({ onStartDM }) {
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             <div style={{ position: 'relative' }}>
-                                                <div style={{
-                                                    width: '40px',
-                                                    height: '40px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: 'var(--bg-tertiary)',
-                                                    backgroundImage: `url(${friend.photoURL || userAvatar})`,
-                                                    backgroundSize: 'cover'
-                                                }} />
+                                                <AvatarCircle photoURL={friend.photoURL} displayName={friend.displayName} size={40} />
                                                 <div style={{
                                                     position: 'absolute',
                                                     bottom: '0',
