@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Shield, Users, Settings, Plus, Trash2, Save } from 'lucide-react';
@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, onSnapshot, query, where, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { hasPermission, PERMISSIONS, isServerOwner, isSuperAdmin } from '../utils/permissions';
+import { appAlert, appConfirm } from '../utils/dialogService';
+import { resolveAvatarUrl } from '../utils/avatarUrl';
 
 export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
     const { currentUser } = useAuth();
@@ -16,7 +18,10 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
     // For this MVP, we'll assume members are stored in the server doc or we just fetch all users (simplified)
 
     const [currentUserMember, setCurrentUserMember] = useState(null);
+    const [memberLoaded, setMemberLoaded] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    const [iconUrlInput, setIconUrlInput] = useState('');
+    const iconFileInputRef = useRef(null);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -25,7 +30,17 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
     }, []);
 
     useEffect(() => {
+        if (!isOpen) return;
+        setActiveTab('overview');
+    }, [isOpen, serverId]);
+
+    useEffect(() => {
+        setIconUrlInput(serverData?.icon || '');
+    }, [serverData?.icon, isOpen]);
+
+    useEffect(() => {
         if (!isOpen || !serverId || !currentUser) return;
+        setMemberLoaded(false);
 
         // Fetch Server Data
         const unsubscribeServer = onSnapshot(doc(db, "servers", serverId), (doc) => {
@@ -61,6 +76,7 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
             } else {
                 setCurrentUserMember(null);
             }
+            setMemberLoaded(true);
         };
         fetchMember();
 
@@ -73,13 +89,26 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
     // Permission Check
     const canManageServer = hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.MANAGE_SERVER);
     const canManageRoles = hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.MANAGE_ROLES);
+    const isOwner = isServerOwner(currentUser, serverData);
+    const isSuper = isSuperAdmin(currentUser);
+    const canManageOverview = canManageServer || isOwner || isSuper;
+    const canManageMembers = canManageRoles || canManageServer || isOwner || isSuper;
+    const canViewSettings = isSuper || isOwner || !!currentUserMember;
+
+    const tabs = [
+        { id: 'overview', label: 'Overview', icon: Settings },
+        ...(canManageRoles || isOwner || isSuper ? [{ id: 'roles', label: 'Roles', icon: Shield }] : []),
+        ...(canManageMembers ? [{ id: 'members', label: 'Members', icon: Users }] : []),
+    ];
+    const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label || 'Overview';
+
+    useEffect(() => {
+        if (!tabs.some(tab => tab.id === activeTab)) {
+            setActiveTab('overview');
+        }
+    }, [activeTab, tabs]);
 
     if (!isOpen) return null;
-
-    // If data is loading or user has no permission to view settings
-    if (serverData && !canManageServer && !isServerOwner(currentUser, serverData) && !isSuperAdmin(currentUser)) {
-        return null; // Or show "Access Denied"
-    }
 
     const handleCreateRole = async () => {
         const newRole = {
@@ -117,36 +146,48 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
     };
 
     const handleDeleteServer = async () => {
-        if (!confirm("Are you sure you want to delete this server? This cannot be undone.")) return;
+        const confirmed = await appConfirm(
+            "Are you sure you want to delete this server? This cannot be undone.",
+            { title: 'Delete Server', confirmText: 'Delete Server', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             await deleteDoc(doc(db, "servers", serverId));
             onClose();
         } catch (error) {
             console.error("Error deleting server:", error);
-            alert("Failed to delete server");
+            await appAlert("Failed to delete server.", { title: 'Delete Failed', danger: true });
         }
     };
 
     const handleGlobalBan = async (userId) => {
         // Only super admins can globally ban
         if (!isSuperAdmin(currentUser)) {
-            alert("Only Super Admins can globally ban users.");
+            await appAlert("Only Super Admins can globally ban users.", { title: 'Permission Denied' });
             return;
         }
-        if (!confirm("Globally ban this user from the entire app? They will not be able to log in.")) return;
+        const confirmed = await appConfirm(
+            "Globally ban this user from the entire app? They will not be able to log in.",
+            { title: 'Global Ban', confirmText: 'Ban User', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             await updateDoc(doc(db, "users", userId), {
                 globalBan: true
             });
-            alert("User globally banned.");
+            await appAlert("User globally banned.", { title: 'User Updated' });
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error banning user:", error);
-            alert("Failed to ban user.");
+            await appAlert("Failed to ban user.", { title: 'Ban Failed', danger: true });
         }
     };
 
     const handleRegenerateInvite = async () => {
-        if (!confirm("Regenerate invite code? The old code will stop working.")) return;
+        const confirmed = await appConfirm(
+            "Regenerate invite code? The old code will stop working.",
+            { title: 'Regenerate Invite', confirmText: 'Regenerate', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
             const values = crypto.getRandomValues(new Uint8Array(10));
@@ -154,15 +195,67 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
             await updateDoc(doc(db, "servers", serverId), { inviteCode: newCode });
         } catch (error) {
             if (import.meta.env.DEV) console.error("Error regenerating invite:", error);
-            alert("Failed to regenerate invite code.");
+            await appAlert("Failed to regenerate invite code.", { title: 'Invite Failed', danger: true });
         }
     };
 
     const copyInviteCode = () => {
         if (serverData?.inviteCode) {
             navigator.clipboard.writeText(serverData.inviteCode);
-            alert("Invite code copied!");
+            void appAlert("Invite code copied!", { title: 'Copied' });
         }
+    };
+
+    const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read image file.'));
+        reader.readAsDataURL(file);
+    });
+
+    const handleServerIconUpload = async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            await appAlert('Please upload an image file for the server icon.', { title: 'Invalid File', danger: true });
+            return;
+        }
+
+        if (file.size > 2 * 1024 * 1024) {
+            await appAlert('Server icon must be under 2 MB.', { title: 'File Too Large', danger: true });
+            return;
+        }
+
+        try {
+            const dataUrl = await readFileAsDataUrl(file);
+            setServerData((prev) => ({ ...(prev || {}), icon: dataUrl }));
+            setIconUrlInput(dataUrl);
+            await appAlert('Server icon updated in preview. Click Save to apply.', { title: 'Icon Ready' });
+        } catch (_) {
+            await appAlert('Failed to process server icon.', { title: 'Upload Failed', danger: true });
+        } finally {
+            event.target.value = '';
+        }
+    };
+
+    const applyIconUrl = async () => {
+        const trimmed = iconUrlInput.trim();
+        if (!trimmed) {
+            setServerData((prev) => ({ ...(prev || {}), icon: null }));
+            return;
+        }
+        if (!/^https?:\/\//i.test(trimmed) && !/^data:image\//i.test(trimmed)) {
+            await appAlert('Use a valid image URL (http/https) or a data URL.', { title: 'Invalid URL', danger: true });
+            return;
+        }
+        setServerData((prev) => ({ ...(prev || {}), icon: trimmed }));
+        await appAlert('Server icon URL applied in preview. Click Save to apply.', { title: 'Icon Ready' });
+    };
+
+    const removeServerIcon = () => {
+        setServerData((prev) => ({ ...(prev || {}), icon: null }));
+        setIconUrlInput('');
     };
 
     if (!isOpen) return null;
@@ -175,25 +268,30 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 1000,
-            padding: isMobile ? '0' : '20px'
+            zIndex: 12000,
+            padding: isMobile ? '0' : '16px'
         }}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
             }}
         >
             <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
+                initial={{ scale: 0.9, opacity: 0, y: 30 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                className={isMobile ? "" : "glass-panel liquid-panel"}
                 style={{
-                    width: isMobile ? '100%' : '800px',
-                    height: isMobile ? '100%' : '600px',
+                    width: isMobile ? '100%' : 'calc(100vw - 32px)',
+                    maxWidth: isMobile ? '100%' : '800px',
+                    height: isMobile ? '100%' : 'calc(100vh - 32px)',
+                    maxHeight: isMobile ? '100%' : '600px',
                     backgroundColor: 'var(--bg-primary)',
                     borderRadius: isMobile ? '0' : '8px',
                     display: 'flex',
                     flexDirection: isMobile ? 'column' : 'row',
                     overflow: 'hidden',
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+                    boxShadow: 'var(--shadow-lg), 0 0 45px rgba(88, 101, 242, 0.15)',
+                    border: isMobile ? 'none' : '1px solid var(--glass-border)',
                 }}
             >
                 {/* Sidebar */}
@@ -212,11 +310,7 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                             {serverData?.name}
                         </div>
                     )}
-                    {[
-                        { id: 'overview', label: 'Overview', icon: Settings },
-                        { id: 'roles', label: 'Roles', icon: Shield },
-                        { id: 'members', label: 'Members', icon: Users },
-                    ].map(item => (
+                    {tabs.map(item => (
                         <button
                             key={item.id}
                             onClick={() => setActiveTab(item.id)}
@@ -247,12 +341,38 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                     <div style={{ padding: isMobile ? '16px' : '24px', flex: 1, overflowY: 'auto' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <h2 style={{ fontSize: '20px', fontWeight: 700 }}>
-                                {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+                                {activeTabLabel}
                             </h2>
                             <button onClick={onClose} className="icon-btn"><X size={24} /></button>
                         </div>
 
-                        {activeTab === 'roles' && (
+                        {!serverData && (
+                            <div style={{
+                                padding: '20px',
+                                borderRadius: '10px',
+                                backgroundColor: 'var(--bg-tertiary)',
+                                color: 'var(--text-secondary)',
+                                fontSize: '14px'
+                            }}>
+                                Loading server settings...
+                            </div>
+                        )}
+
+                        {serverData && memberLoaded && !canViewSettings && (
+                            <div style={{
+                                padding: '20px',
+                                borderRadius: '10px',
+                                backgroundColor: 'var(--bg-tertiary)',
+                                border: '1px solid var(--glass-border)',
+                                color: 'var(--text-secondary)',
+                                fontSize: '14px',
+                                lineHeight: 1.5
+                            }}>
+                                You don't have permission to manage this server.
+                            </div>
+                        )}
+
+                        {serverData && canViewSettings && activeTab === 'roles' && (
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
                                     <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -346,10 +466,15 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                             </div>
                         )}
 
-                        {activeTab === 'members' && (
+                        {serverData && canViewSettings && activeTab === 'members' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {members.map(member => (
-                                    <div key={member.id} style={{
+                                {members.map((member) => {
+                                    const resolvedAvatar = resolveAvatarUrl(member.user.photoURL);
+                                    const hasAvatar = !!resolvedAvatar;
+                                    const fallbackInitial = (member.user.displayName || 'U').trim().charAt(0).toUpperCase();
+
+                                    return (
+                                        <div key={member.id} style={{
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
@@ -362,10 +487,26 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                                 width: '32px',
                                                 height: '32px',
                                                 borderRadius: '50%',
-                                                backgroundImage: `url(${member.user.photoURL})`,
-                                                backgroundSize: 'cover',
-                                                backgroundColor: '#5865f2'
-                                            }} />
+                                                backgroundColor: 'var(--bg-secondary)',
+                                                overflow: 'hidden',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: 'var(--text-primary)',
+                                                fontSize: '12px',
+                                                fontWeight: 700,
+                                            }}>
+                                                {hasAvatar ? (
+                                                    <img
+                                                        src={resolvedAvatar}
+                                                        alt={member.user.displayName || 'User avatar'}
+                                                        referrerPolicy="no-referrer"
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
+                                                ) : (
+                                                    fallbackInitial || 'U'
+                                                )}
+                                            </div>
                                             <div>
                                                 <div style={{ fontWeight: 600, color: 'white' }}>{member.user.displayName}</div>
                                                 <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -402,16 +543,19 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                             {(hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.KICK_MEMBERS) || isServerOwner(currentUser, serverData)) && (
                                                 <button
                                                     onClick={async () => {
-                                                        if (confirm('Kick this user?')) {
-                                                            await deleteDoc(doc(db, "servers", serverId, "members", member.id));
-                                                            // Also remove from their joinedServers if possible, but we can't easily access their doc without being admin usually.
-                                                            // But we can try.
-                                                            try {
-                                                                await updateDoc(doc(db, "users", member.id), {
-                                                                    joinedServers: arrayRemove(serverId)
-                                                                });
-                                                            } catch (e) { console.error("Could not remove from user joinedServers", e); }
-                                                        }
+                                                        const confirmed = await appConfirm(
+                                                            'Kick this user?',
+                                                            { title: 'Kick Member', confirmText: 'Kick', cancelText: 'Cancel', danger: true }
+                                                        );
+                                                        if (!confirmed) return;
+                                                        await deleteDoc(doc(db, "servers", serverId, "members", member.id));
+                                                        // Also remove from their joinedServers if possible, but we can't easily access their doc without being admin usually.
+                                                        // But we can try.
+                                                        try {
+                                                            await updateDoc(doc(db, "users", member.id), {
+                                                                joinedServers: arrayRemove(serverId)
+                                                            });
+                                                        } catch (e) { console.error("Could not remove from user joinedServers", e); }
                                                     }}
                                                     style={{ color: 'var(--warning)', background: 'transparent', border: 'none', cursor: 'pointer' }}
                                                 >
@@ -422,17 +566,20 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                             {(hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.BAN_MEMBERS) || isServerOwner(currentUser, serverData)) && (
                                                 <button
                                                     onClick={async () => {
-                                                        if (confirm('Ban this user?')) {
-                                                            await updateDoc(doc(db, "servers", serverId), {
-                                                                bannedUsers: arrayUnion(member.id)
+                                                        const confirmed = await appConfirm(
+                                                            'Ban this user?',
+                                                            { title: 'Ban Member', confirmText: 'Ban', cancelText: 'Cancel', danger: true }
+                                                        );
+                                                        if (!confirmed) return;
+                                                        await updateDoc(doc(db, "servers", serverId), {
+                                                            bannedUsers: arrayUnion(member.id)
+                                                        });
+                                                        await deleteDoc(doc(db, "servers", serverId, "members", member.id));
+                                                        try {
+                                                            await updateDoc(doc(db, "users", member.id), {
+                                                                joinedServers: arrayRemove(serverId)
                                                             });
-                                                            await deleteDoc(doc(db, "servers", serverId, "members", member.id));
-                                                            try {
-                                                                await updateDoc(doc(db, "users", member.id), {
-                                                                    joinedServers: arrayRemove(serverId)
-                                                                });
-                                                            } catch (e) { console.error("Could not remove from user joinedServers", e); }
-                                                        }
+                                                        } catch (e) { console.error("Could not remove from user joinedServers", e); }
                                                     }}
                                                     style={{ color: 'var(--error)', background: 'transparent', border: 'none', cursor: 'pointer' }}
                                                 >
@@ -450,27 +597,105 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                             )}
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
 
-                        {activeTab === 'overview' && (
+                        {serverData && canViewSettings && activeTab === 'overview' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                {!canManageOverview && (
+                                    <div style={{
+                                        padding: '12px 14px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'rgba(250, 204, 21, 0.08)',
+                                        border: '1px solid rgba(250, 204, 21, 0.25)',
+                                        color: '#facc15',
+                                        fontSize: '13px'
+                                    }}>
+                                        You can view this server, but only admins can change settings.
+                                    </div>
+                                )}
+
                                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                                     <div style={{
                                         width: '100px',
                                         height: '100px',
                                         borderRadius: '50%',
                                         backgroundColor: 'var(--bg-tertiary)',
+                                        backgroundImage: serverData?.icon ? `url(${serverData.icon})` : undefined,
+                                        backgroundSize: 'cover',
+                                        backgroundPosition: 'center',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         fontSize: '32px',
-                                        fontWeight: 700
+                                        fontWeight: 700,
+                                        border: '1px solid var(--glass-border)',
+                                        overflow: 'hidden',
                                     }}>
-                                        {serverData?.name?.[0]}
+                                        {!serverData?.icon && serverData?.name?.[0]}
                                     </div>
                                     <div style={{ flex: 1, minWidth: '200px' }}>
+                                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                            SERVER ICON
+                                        </label>
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                                            <button
+                                                type="button"
+                                                className="secondary-button"
+                                                onClick={() => iconFileInputRef.current?.click()}
+                                                disabled={!canManageOverview}
+                                                style={{ padding: '6px 12px', fontSize: '12px', opacity: canManageOverview ? 1 : 0.6 }}
+                                            >
+                                                Upload Icon
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="secondary-button"
+                                                onClick={removeServerIcon}
+                                                disabled={!canManageOverview}
+                                                style={{ padding: '6px 12px', fontSize: '12px', opacity: canManageOverview ? 1 : 0.6 }}
+                                            >
+                                                Remove Icon
+                                            </button>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                                            <input
+                                                type="text"
+                                                value={iconUrlInput}
+                                                onChange={(event) => setIconUrlInput(event.target.value)}
+                                                placeholder="https://example.com/icon.png"
+                                                disabled={!canManageOverview}
+                                                style={{
+                                                    background: 'var(--bg-tertiary)',
+                                                    border: '1px solid var(--glass-border)',
+                                                    padding: '8px 10px',
+                                                    borderRadius: '6px',
+                                                    color: 'white',
+                                                    flex: 1,
+                                                    fontSize: '12px',
+                                                    opacity: canManageOverview ? 1 : 0.7
+                                                }}
+                                            />
+                                            <button
+                                                type="button"
+                                                className="secondary-button"
+                                                onClick={applyIconUrl}
+                                                disabled={!canManageOverview}
+                                                style={{ padding: '6px 12px', fontSize: '12px', opacity: canManageOverview ? 1 : 0.6 }}
+                                            >
+                                                Apply URL
+                                            </button>
+                                        </div>
+                                        <input
+                                            ref={iconFileInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleServerIconUpload}
+                                            style={{ display: 'none' }}
+                                        />
+
                                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
                                             SERVER NAME
                                         </label>
@@ -479,13 +704,15 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                                 type="text"
                                                 value={serverData?.name || ''}
                                                 onChange={(e) => setServerData({ ...serverData, name: e.target.value.slice(0, 100) })}
+                                                disabled={!canManageOverview}
                                                 style={{
                                                     background: 'var(--bg-tertiary)',
                                                     border: '1px solid var(--glass-border)',
                                                     padding: '10px',
                                                     borderRadius: '4px',
                                                     color: 'white',
-                                                    flex: 1
+                                                    flex: 1,
+                                                    opacity: canManageOverview ? 1 : 0.7
                                                 }}
                                             />
                                             <button
@@ -493,16 +720,18 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                                     try {
                                                         await updateDoc(doc(db, "servers", serverId), {
                                                             name: serverData.name,
-                                                            description: serverData.description || ''
+                                                            description: serverData.description || '',
+                                                            icon: serverData.icon || null
                                                         });
-                                                        alert("Server updated!");
+                                                        await appAlert("Server updated!", { title: 'Saved' });
                                                     } catch (e) {
                                                         if (import.meta.env.DEV) console.error("Error updating:", e);
-                                                        alert("Failed to update.");
+                                                        await appAlert("Failed to update.", { title: 'Update Failed', danger: true });
                                                     }
                                                 }}
                                                 className="glossy-button"
-                                                style={{ padding: '0 16px' }}
+                                                disabled={!canManageOverview}
+                                                style={{ padding: '0 16px', opacity: canManageOverview ? 1 : 0.5, cursor: canManageOverview ? 'pointer' : 'not-allowed' }}
                                             >
                                                 <Save size={18} />
                                             </button>
@@ -516,6 +745,7 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                             onChange={(e) => setServerData({ ...serverData, description: e.target.value.slice(0, 500) })}
                                             placeholder="Describe your server..."
                                             rows={3}
+                                            disabled={!canManageOverview}
                                             style={{
                                                 background: 'var(--bg-tertiary)',
                                                 border: '1px solid var(--glass-border)',
@@ -525,7 +755,8 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                                 width: '100%',
                                                 resize: 'none',
                                                 fontFamily: 'inherit',
-                                                fontSize: '14px'
+                                                fontSize: '14px',
+                                                opacity: canManageOverview ? 1 : 0.7
                                             }}
                                         />
                                     </div>
@@ -563,15 +794,17 @@ export default function ServerSettingsModal({ isOpen, onClose, serverId }) {
                                         </button>
                                         <button
                                             onClick={handleRegenerateInvite}
+                                            disabled={!canManageOverview}
                                             style={{
                                                 padding: '10px 16px',
                                                 background: 'transparent',
                                                 border: '1px solid var(--glass-border)',
                                                 borderRadius: '8px',
                                                 color: 'var(--text-secondary)',
-                                                cursor: 'pointer',
+                                                cursor: canManageOverview ? 'pointer' : 'not-allowed',
                                                 fontWeight: 600,
-                                                whiteSpace: 'nowrap'
+                                                whiteSpace: 'nowrap',
+                                                opacity: canManageOverview ? 1 : 0.5
                                             }}
                                         >
                                             Regenerate
