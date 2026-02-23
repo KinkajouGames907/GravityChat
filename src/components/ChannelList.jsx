@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, Volume2, ChevronDown, ChevronRight, Mic, Headphones, Settings, Plus, MessageCircle, X, UserPlus, Trash2, Link, Check, Circle } from 'lucide-react';
+import { Hash, Volume2, ChevronDown, ChevronRight, Mic, MicOff, Headphones, Settings, Plus, MessageCircle, X, UserPlus, Trash2, Link, Check, Circle, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, updateDoc, arrayUnion, collection, query, where, getDocs, setDoc, getDoc, arrayRemove, orderBy, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, arrayUnion, collection, query, where, getDocs, setDoc, getDoc, arrayRemove, orderBy, serverTimestamp, addDoc, deleteDoc } from 'firebase/firestore';
 import SettingsModal from './SettingsModal';
+import ServerSettingsModal from './ServerSettingsModal';
 import { hasPermission, PERMISSIONS, isServerOwner } from '../utils/permissions';
 import userAvatar from '../assets/user_avatar.png';
+import { resolveAvatarUrl } from '../utils/avatarUrl';
+import { useVoiceControls } from '../context/VoiceControlsContext';
+import { appAlert, appConfirm, appPrompt } from '../utils/dialogService';
 
 const STATUS_OPTIONS = [
     { key: 'online',    label: 'Online',          color: '#22c55e', emoji: '🟢' },
@@ -20,6 +24,66 @@ const getStatusColor = (status) => {
     const opt = STATUS_OPTIONS.find(o => o.key === status);
     return opt ? opt.color : '#6b7280';
 };
+
+const normalizeStatusFromUserData = (userData) => {
+    const lastSeen = userData?.lastSeen?.toDate?.() || null;
+    const isOnline = !!lastSeen && (Date.now() - lastSeen.getTime()) < 2 * 60 * 1000;
+    if (!isOnline) return 'offline';
+
+    const status = userData?.status || 'online';
+    return status === 'invisible' ? 'offline' : status;
+};
+
+const toMillis = (value) => {
+    if (!value) return 0;
+    if (typeof value.toMillis === 'function') return value.toMillis();
+    if (value instanceof Date) return value.getTime();
+    if (typeof value.seconds === 'number') return value.seconds * 1000;
+    if (typeof value === 'number') return value;
+    return 0;
+};
+
+function AvatarBubble({ photoURL, displayName, size = 34, fallbackBorder = '1px solid rgba(168,85,247,0.18)' }) {
+    const [avatarError, setAvatarError] = useState(false);
+    const resolvedPhotoURL = resolveAvatarUrl(photoURL);
+
+    useEffect(() => {
+        setAvatarError(false);
+    }, [resolvedPhotoURL]);
+
+    const hasPhoto = !!resolvedPhotoURL && !avatarError;
+    const fallbackInitial = (displayName || 'U').trim().charAt(0).toUpperCase();
+
+    return (
+        <div style={{
+            width: `${size}px`,
+            height: `${size}px`,
+            borderRadius: '50%',
+            backgroundColor: 'var(--bg-tertiary)',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-primary)',
+            fontWeight: 700,
+            fontSize: `${Math.max(11, Math.floor(size * 0.36))}px`,
+            border: fallbackBorder,
+            flexShrink: 0,
+        }}>
+            {hasPhoto ? (
+                <img
+                    src={resolvedPhotoURL}
+                    alt={displayName || 'User avatar'}
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarError(true)}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+            ) : (
+                fallbackInitial || 'U'
+            )}
+        </div>
+    );
+}
 
 /* ── Skeleton ─────────────────────────────────────────────────────────── */
 function SkeletonRow({ width = '75%', delay = 0 }) {
@@ -75,7 +139,7 @@ const ChannelItem = ({ name, type, active, onClick, onDelete, canDelete, index, 
 );
 
 /* ── DM item ──────────────────────────────────────────────────────────── */
-const DMItem = ({ user, active, onClick, index }) => (
+const DMItem = ({ dm, active, onClick, index, onOpenGroupSettings }) => (
     <motion.div
         initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
         transition={{ delay: index * 0.05, ease: [0.16, 1, 0.3, 1] }}
@@ -93,30 +157,56 @@ const DMItem = ({ user, active, onClick, index }) => (
         whileHover={{ x: active ? 0 : 3 }}
     >
         <div style={{ position: 'relative', marginRight: '10px', flexShrink: 0 }}>
-            <div style={{
-                width: '34px', height: '34px', borderRadius: '50%',
-                backgroundColor: 'var(--bg-tertiary)',
-                backgroundImage: `url(${user.photoURL || userAvatar})`,
-                backgroundSize: 'cover', backgroundPosition: 'center',
-                border: '1px solid rgba(168,85,247,0.18)',
-            }} />
-            <div style={{
-                position: 'absolute', bottom: '-1px', right: '-1px',
-                width: '11px', height: '11px', borderRadius: '50%',
-                backgroundColor: getStatusColor(user.status),
-                border: '2px solid var(--bg-secondary)',
-            }} />
+            {dm.kind === 'group' && !dm.photoURL ? (
+                <div style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--bg-tertiary)',
+                    border: '1px solid rgba(168,85,247,0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#c084fc',
+                }}>
+                    <Users size={16} />
+                </div>
+            ) : (
+                <AvatarBubble photoURL={dm.photoURL || userAvatar} displayName={dm.displayName} size={34} />
+            )}
+            {dm.kind !== 'group' && (
+                <div style={{
+                    position: 'absolute', bottom: '-1px', right: '-1px',
+                    width: '11px', height: '11px', borderRadius: '50%',
+                    backgroundColor: getStatusColor(dm.status),
+                    border: '2px solid var(--bg-secondary)',
+                }} />
+            )}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: active ? 600 : 500, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user.displayName}
+                {dm.displayName}
             </div>
-            {user.statusMessage && (
+            {(dm.subtitle || dm.statusMessage) && (
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {user.statusMessage}
+                    {dm.subtitle || dm.statusMessage}
                 </div>
             )}
         </div>
+        {dm.kind === 'group' && (
+            <button
+                type="button"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenGroupSettings?.(dm);
+                }}
+                className="icon-btn"
+                title="Group chat settings"
+                style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+                <Settings size={14} />
+            </button>
+        )}
     </motion.div>
 );
 
@@ -256,6 +346,445 @@ function InviteModal({ inviteCode, serverName, onClose }) {
     );
 }
 
+function GroupChatCreatorModal({
+    isOpen,
+    onClose,
+    candidates,
+    selectedIds,
+    onToggleMember,
+    groupName,
+    setGroupName,
+    searchQuery,
+    setSearchQuery,
+    onCreate,
+    loading,
+    creating,
+}) {
+    if (!isOpen) return null;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
+    const filteredCandidates = candidates.filter((candidate) =>
+        (candidate.displayName || '').toLowerCase().includes(searchQuery.trim().toLowerCase())
+    );
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(2,1,8,0.82)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 3200,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: isMobile ? '0' : '16px',
+            }}
+        >
+            <motion.div
+                initial={{ opacity: 0, y: 18, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 360, damping: 28 }}
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                    width: '100%',
+                    maxWidth: isMobile ? '100%' : '520px',
+                    height: isMobile ? '100%' : 'auto',
+                    maxHeight: isMobile ? '100%' : 'min(86vh, 680px)',
+                    background: 'linear-gradient(160deg, rgba(19,13,34,0.99), rgba(9,6,20,0.99))',
+                    border: '1px solid rgba(168,85,247,0.25)',
+                    borderRadius: isMobile ? '0' : '16px',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}
+            >
+                <div style={{
+                    padding: isMobile ? 'calc(14px + env(safe-area-inset-top, 0px)) 16px 14px' : '14px 16px',
+                    borderBottom: '1px solid rgba(168,85,247,0.16)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>Create Group Chat</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                            Select at least 2 people
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="icon-btn" style={{ width: '30px', height: '30px' }}>
+                        <X size={16} />
+                    </button>
+                </div>
+
+                <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <input
+                        type="text"
+                        value={groupName}
+                        onChange={(event) => setGroupName(event.target.value.slice(0, 60))}
+                        placeholder="Group name (optional)"
+                        style={{ width: '100%', padding: '9px 11px', fontSize: '13px' }}
+                    />
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        placeholder="Search friends"
+                        style={{ width: '100%', padding: '9px 11px', fontSize: '13px' }}
+                    />
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px' }}>
+                    {loading ? (
+                        <div style={{ padding: '18px 10px', fontSize: '13px', color: 'var(--text-muted)' }}>
+                            Loading friends...
+                        </div>
+                    ) : filteredCandidates.length === 0 ? (
+                        <div style={{ padding: '18px 10px', fontSize: '13px', color: 'var(--text-muted)' }}>
+                            No friends found for this filter.
+                        </div>
+                    ) : (
+                        filteredCandidates.map((candidate) => {
+                            const selected = selectedIds.has(candidate.uid);
+                            return (
+                                <button
+                                    key={candidate.uid}
+                                    type="button"
+                                    onClick={() => onToggleMember(candidate.uid)}
+                                    style={{
+                                        width: '100%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '9px 10px',
+                                        marginBottom: '4px',
+                                        borderRadius: '10px',
+                                        border: selected ? '1px solid rgba(168,85,247,0.45)' : '1px solid transparent',
+                                        background: selected ? 'rgba(168,85,247,0.14)' : 'transparent',
+                                        color: 'var(--text-primary)',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                    }}
+                                >
+                                    {selected ? <Check size={14} color="#c084fc" /> : <Circle size={14} color="var(--text-muted)" />}
+                                    <AvatarBubble
+                                        photoURL={candidate.photoURL || userAvatar}
+                                        displayName={candidate.displayName}
+                                        size={30}
+                                        fallbackBorder="1px solid rgba(168,85,247,0.25)"
+                                    />
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {candidate.displayName || 'Unknown User'}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {candidate.email || ''}
+                                        </div>
+                                    </div>
+                                </button>
+                            );
+                        })
+                    )}
+                </div>
+
+                <div style={{
+                    borderTop: '1px solid rgba(168,85,247,0.14)',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '10px',
+                }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        {selectedIds.size} selected
+                    </span>
+                    <button
+                        type="button"
+                        onClick={onCreate}
+                        className="glossy-button"
+                        disabled={creating || selectedIds.size < 2}
+                        style={{ opacity: (creating || selectedIds.size < 2) ? 0.6 : 1 }}
+                    >
+                        {creating ? 'Creating...' : 'Create Group'}
+                    </button>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+}
+
+function GroupChatSettingsModal({
+    isOpen,
+    onClose,
+    dm,
+    isOwner,
+    onSave,
+    onLeave,
+    onDelete,
+    saving,
+    leaving,
+    deleting,
+}) {
+    const [nameInput, setNameInput] = useState('');
+    const [photoUrlInput, setPhotoUrlInput] = useState('');
+    const fileInputRef = useRef(null);
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const busy = saving || leaving || deleting;
+
+    useEffect(() => {
+        if (!isOpen || !dm) return;
+        setNameInput((dm.name || dm.displayName || 'Group Chat').slice(0, 60));
+        setPhotoUrlInput(dm.photoURL || '');
+    }, [isOpen, dm?.id, dm?.name, dm?.displayName, dm?.photoURL]);
+
+    if (!isOpen || !dm) return null;
+
+    const handleFileUpload = async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            await appAlert('Please select an image file.', { title: 'Invalid File', danger: true });
+            event.target.value = '';
+            return;
+        }
+
+        if (file.size > 2 * 1024 * 1024) {
+            await appAlert('Group photo must be under 2 MB.', { title: 'File Too Large', danger: true });
+            event.target.value = '';
+            return;
+        }
+
+        try {
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('Failed to read file.'));
+                reader.readAsDataURL(file);
+            });
+            setPhotoUrlInput(dataUrl);
+        } catch (_) {
+            await appAlert('Could not process image file.', { title: 'Upload Failed', danger: true });
+        } finally {
+            event.target.value = '';
+        }
+    };
+
+    const previewUrl = resolveAvatarUrl(photoUrlInput || dm.photoURL || '');
+    const fallbackInitial = (nameInput || dm.displayName || 'G').trim().charAt(0).toUpperCase();
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => { if (!busy) onClose(); }}
+            style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(2,1,8,0.82)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 3400,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: isMobile ? '0' : '16px',
+            }}
+        >
+            <motion.div
+                initial={{ opacity: 0, y: 18, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 360, damping: 28 }}
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                    width: '100%',
+                    maxWidth: isMobile ? '100%' : '520px',
+                    height: isMobile ? '100%' : 'auto',
+                    maxHeight: isMobile ? '100%' : 'min(86vh, 680px)',
+                    background: 'linear-gradient(160deg, rgba(19,13,34,0.99), rgba(9,6,20,0.99))',
+                    border: '1px solid rgba(168,85,247,0.25)',
+                    borderRadius: isMobile ? '0' : '16px',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}
+            >
+                <div style={{
+                    padding: isMobile ? 'calc(14px + env(safe-area-inset-top, 0px)) 16px 14px' : '14px 16px',
+                    borderBottom: '1px solid rgba(168,85,247,0.16)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>Group Chat Settings</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                            {isOwner ? 'Manage your group chat.' : 'Only the group owner can edit details.'}
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="icon-btn" style={{ width: '30px', height: '30px' }} disabled={busy}>
+                        <X size={16} />
+                    </button>
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{
+                            width: '64px',
+                            height: '64px',
+                            borderRadius: '50%',
+                            backgroundColor: 'var(--bg-tertiary)',
+                            border: '1px solid rgba(168,85,247,0.2)',
+                            overflow: 'hidden',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#c084fc',
+                            fontSize: '22px',
+                            fontWeight: 700,
+                            flexShrink: 0,
+                        }}>
+                            {previewUrl ? (
+                                <img
+                                    src={previewUrl}
+                                    alt={nameInput || 'Group chat'}
+                                    referrerPolicy="no-referrer"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
+                            ) : (
+                                fallbackInitial || 'G'
+                            )}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {nameInput || dm.displayName || 'Group Chat'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                {Array.isArray(dm.participants) ? dm.participants.length : 0} members
+                            </div>
+                        </div>
+                    </div>
+
+                    {isOwner && (
+                        <>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                    Group Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={nameInput}
+                                    onChange={(event) => setNameInput(event.target.value.slice(0, 60))}
+                                    placeholder="Group chat name"
+                                    disabled={busy}
+                                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                    Group Photo URL
+                                </label>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <input
+                                        type="text"
+                                        value={photoUrlInput}
+                                        onChange={(event) => setPhotoUrlInput(event.target.value)}
+                                        placeholder="https://example.com/group-photo.png"
+                                        disabled={busy}
+                                        style={{ flex: 1, padding: '10px 12px', fontSize: '13px' }}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="secondary-button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={busy}
+                                        style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}
+                                    >
+                                        Upload
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="secondary-button"
+                                        onClick={() => setPhotoUrlInput('')}
+                                        disabled={busy}
+                                        style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}
+                                    >
+                                        Remove
+                                    </button>
+                                </div>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleFileUpload}
+                                    style={{ display: 'none' }}
+                                />
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div style={{
+                    borderTop: '1px solid rgba(168,85,247,0.14)',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '8px',
+                    flexWrap: 'wrap',
+                }}>
+                    <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={onLeave}
+                        disabled={busy}
+                        style={{ padding: '8px 12px' }}
+                    >
+                        {leaving ? 'Leaving...' : 'Leave Group'}
+                    </button>
+
+                    <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+                        {isOwner && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={onDelete}
+                                    disabled={busy}
+                                    style={{
+                                        padding: '8px 12px',
+                                        color: '#fda4af',
+                                        borderColor: 'rgba(248,113,113,0.35)',
+                                        backgroundColor: 'rgba(127,29,29,0.2)',
+                                    }}
+                                >
+                                    {deleting ? 'Deleting...' : 'Delete Group'}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="glossy-button"
+                                    onClick={() => onSave({ name: nameInput, photoURL: photoUrlInput })}
+                                    disabled={busy}
+                                    style={{ padding: '8px 14px' }}
+                                >
+                                    {saving ? 'Saving...' : 'Save Changes'}
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+}
+
 /* ── Status picker popup ──────────────────────────────────────────────── */
 function StatusPicker({ currentStatus, currentStatusMessage, onSelectStatus, onSetStatusMessage, onClose }) {
     const [editingMsg, setEditingMsg] = useState(false);
@@ -344,6 +873,7 @@ function StatusPicker({ currentStatus, currentStatusMessage, onSelectStatus, onS
 /* ── User area ────────────────────────────────────────────────────────── */
 function UserArea({ currentUser, userRoleColor, onSettings }) {
     const { updateUserStatus } = useAuth();
+    const { isMicMuted, isDeafened, toggleMicMute, toggleDeafen } = useVoiceControls();
     const [showStatusPicker, setShowStatusPicker] = useState(false);
     const areaRef = useRef(null);
 
@@ -392,23 +922,14 @@ function UserArea({ currentUser, userRoleColor, onSettings }) {
 
             {/* Avatar + status dot (clickable to open status picker) */}
             <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                whileHover={{ scale: 1.15, rotate: 5 }}
+                whileTap={{ scale: 0.85, rotate: -5 }}
                 onClick={() => setShowStatusPicker(!showStatusPicker)}
+                onContextMenu={(e) => { e.preventDefault(); onSettings(); }}
                 style={{ position: 'relative', flexShrink: 0, cursor: 'pointer' }}
-                title="Change status"
+                title="Left click: Change status | Right click: Edit Profile"
             >
-                <div style={{
-                    width: '34px', height: '34px', borderRadius: '50%',
-                    background: 'linear-gradient(135deg, #a855f7, #ec4899)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '14px', fontWeight: 800, color: 'white',
-                    boxShadow: '0 0 12px rgba(168,85,247,0.35)',
-                    backgroundImage: currentUser?.photoURL ? `url(${currentUser.photoURL})` : undefined,
-                    backgroundSize: 'cover', backgroundPosition: 'center',
-                }}>
-                    {!currentUser?.photoURL && (currentUser?.email?.[0]?.toUpperCase() || 'U')}
-                </div>
+                <AvatarBubble photoURL={currentUser?.photoURL} displayName={currentUser?.displayName || currentUser?.email} size={34} />
                 <div style={{
                     position: 'absolute', bottom: '-1px', right: '-1px',
                     width: '11px', height: '11px', borderRadius: '50%',
@@ -431,8 +952,34 @@ function UserArea({ currentUser, userRoleColor, onSettings }) {
 
             {/* Controls */}
             <div style={{ display: 'flex', gap: '2px' }}>
-                <motion.button className="icon-btn" whileHover={{ scale: 1.12 }} whileTap={{ scale: 0.9 }} title="Mute microphone"><Mic size={16} /></motion.button>
-                <motion.button className="icon-btn" whileHover={{ scale: 1.12 }} whileTap={{ scale: 0.9 }} title="Deafen"><Headphones size={16} /></motion.button>
+                <motion.button
+                    className="icon-btn"
+                    whileHover={{ scale: 1.12 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={toggleMicMute}
+                    title={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+                    style={{
+                        color: isMicMuted ? '#f97316' : undefined,
+                        backgroundColor: isMicMuted ? 'rgba(249, 115, 22, 0.14)' : undefined,
+                        border: isMicMuted ? '1px solid rgba(249, 115, 22, 0.35)' : undefined,
+                    }}
+                >
+                    {isMicMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                </motion.button>
+                <motion.button
+                    className="icon-btn"
+                    whileHover={{ scale: 1.12 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={toggleDeafen}
+                    title={isDeafened ? "Undeafen" : "Deafen"}
+                    style={{
+                        color: isDeafened ? '#f97316' : undefined,
+                        backgroundColor: isDeafened ? 'rgba(249, 115, 22, 0.14)' : undefined,
+                        border: isDeafened ? '1px solid rgba(249, 115, 22, 0.35)' : undefined,
+                    }}
+                >
+                    <Headphones size={16} />
+                </motion.button>
                 <motion.button className="icon-btn" whileHover={{ scale: 1.12 }} whileTap={{ scale: 0.9 }} onClick={onSettings} title="Settings"><Settings size={16} /></motion.button>
             </div>
         </motion.div>
@@ -440,7 +987,7 @@ function UserArea({ currentUser, userRoleColor, onSettings }) {
 }
 
 /* ── Main component ───────────────────────────────────────────────────── */
-export default function ChannelList({ activeServerId, activeChannelId, setActiveChannelId, setActiveChannelName, isMobileView, setActiveDmUser }) {
+export default function ChannelList({ activeServerId, activeChannelId, setActiveChannelId, setActiveChannelName, setActiveChannelType, isMobileView, setActiveDmUser }) {
     const { currentUser } = useAuth();
     const [serverData, setServerData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -453,6 +1000,17 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     const [currentUserMember, setCurrentUserMember] = useState(null);
     const [roles, setRoles] = useState([]);
     const [userRoleColor, setUserRoleColor] = useState(null);
+    const [showGroupCreator, setShowGroupCreator] = useState(false);
+    const [groupCandidates, setGroupCandidates] = useState([]);
+    const [groupCandidatesLoading, setGroupCandidatesLoading] = useState(false);
+    const [groupCreating, setGroupCreating] = useState(false);
+    const [groupNameInput, setGroupNameInput] = useState('');
+    const [groupSearchQuery, setGroupSearchQuery] = useState('');
+    const [groupSelectedIds, setGroupSelectedIds] = useState(new Set());
+    const [groupSettingsDmId, setGroupSettingsDmId] = useState(null);
+    const [groupSettingsSaving, setGroupSettingsSaving] = useState(false);
+    const [groupSettingsLeaving, setGroupSettingsLeaving] = useState(false);
+    const [groupSettingsDeleting, setGroupSettingsDeleting] = useState(false);
 
     // Unread channel tracking — { [channelId]: boolean }
     const [unreadChannels, setUnreadChannels] = useState({});
@@ -466,7 +1024,13 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     // Server header dropdown + invite modal
     const [showServerMenu, setShowServerMenu] = useState(false);
     const [showInvite, setShowInvite] = useState(false);
+    const [isServerSettingsOpen, setIsServerSettingsOpen] = useState(false);
     const serverMenuRef = useRef(null);
+    const groupSettingsDm = dms.find((dm) => dm.id === groupSettingsDmId) || null;
+    const groupSettingsOwnerId = groupSettingsDm
+        ? (groupSettingsDm.ownerId || groupSettingsDm.createdBy || groupSettingsDm.participants?.[0] || null)
+        : null;
+    const canManageCurrentGroup = !!groupSettingsDm && groupSettingsOwnerId === currentUser?.uid;
 
     const toggleCategory = (cat) => {
         setCollapsedCategories(prev => {
@@ -495,27 +1059,75 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
             if (currentUser) {
                 const q = query(collection(db, 'dms'), where('participants', 'array-contains', currentUser.uid));
                 const unsubscribe = onSnapshot(q, async (snapshot) => {
-                    const dmList = await Promise.all(snapshot.docs.map(async (docSnapshot) => {
-                        const data = docSnapshot.data();
-                        const otherUserId = data.participants.find(uid => uid !== currentUser.uid);
-                        let otherUser = { displayName: 'Unknown User', uid: otherUserId };
-                        try {
-                            const userDoc = await getDoc(doc(db, 'users', otherUserId));
-                            if (userDoc.exists()) {
-                                const userData = userDoc.data();
-                                const isOnline = userData.lastSeen && (new Date() - userData.lastSeen.toDate()) < 2 * 60 * 1000;
-                                let userStatus = 'offline';
-                                if (isOnline) {
-                                    userStatus = userData.status || 'online';
-                                    if (userStatus === 'invisible') userStatus = 'offline';
+                    const dmList = await Promise.all(snapshot.docs.map(async (dmDoc) => {
+                        const data = dmDoc.data();
+                        const participants = Array.isArray(data.participants) ? data.participants : [];
+
+                        if (data.isGroup) {
+                            const otherMemberIds = participants.filter((uid) => uid !== currentUser.uid);
+                            const memberProfiles = await Promise.all(otherMemberIds.map(async (uid) => {
+                                try {
+                                    const userSnap = await getDoc(doc(db, 'users', uid));
+                                    if (!userSnap.exists()) return null;
+                                    return { uid, ...userSnap.data() };
+                                } catch (_) {
+                                    return null;
                                 }
-                                otherUser = { ...userData, status: userStatus };
+                            }));
+
+                            const validMembers = memberProfiles.filter(Boolean);
+                            const memberNames = validMembers
+                                .map((member) => member.displayName)
+                                .filter(Boolean);
+                            const fallbackName = memberNames.length > 0
+                                ? memberNames.slice(0, 3).join(', ')
+                                : 'Group Chat';
+                            const displayName = data.name?.trim() || fallbackName;
+                            const subtitle = `${participants.length || 0} members`;
+                            const ownerId = data.ownerId || data.createdBy || participants[0] || null;
+
+                            return {
+                                id: dmDoc.id,
+                                ...data,
+                                kind: 'group',
+                                displayName,
+                                subtitle,
+                                ownerId,
+                                status: 'online',
+                            };
+                        }
+
+                        const otherUserId = participants.find((uid) => uid !== currentUser.uid);
+                        let otherUser = { uid: otherUserId, displayName: 'Unknown User', photoURL: '', status: 'offline' };
+                        try {
+                            if (otherUserId) {
+                                const userDoc = await getDoc(doc(db, 'users', otherUserId));
+                                if (userDoc.exists()) {
+                                    const userData = userDoc.data();
+                                    otherUser = {
+                                        uid: otherUserId,
+                                        ...userData,
+                                        status: normalizeStatusFromUserData(userData),
+                                    };
+                                }
                             }
                         } catch (e) {
                             if (import.meta.env.DEV) console.error('Error fetching DM user', e);
                         }
-                        return { id: docSnapshot.id, otherUser, ...data };
+
+                        return {
+                            id: dmDoc.id,
+                            ...data,
+                            kind: 'direct',
+                            displayName: otherUser.displayName || 'Unknown User',
+                            photoURL: otherUser.photoURL || '',
+                            status: otherUser.status || 'offline',
+                            statusMessage: otherUser.statusMessage || otherUser.customStatus || '',
+                            otherUser,
+                        };
                     }));
+
+                    dmList.sort((a, b) => toMillis(b.updatedAt) - toMillis(a.updatedAt));
                     setDms(dmList);
                 });
                 return unsubscribe;
@@ -533,6 +1145,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                     if (first) {
                         setActiveChannelId(`${activeServerId}-${first.name}`);
                         setActiveChannelName(first.name);
+                        if (setActiveChannelType) setActiveChannelType(first.type || 'text');
                     }
                 }
             }
@@ -570,13 +1183,24 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                 const q = query(usersRef, where('displayName', '>=', dmSearchQuery), where('displayName', '<=', dmSearchQuery + '\uf8ff'));
                 const snap = await getDocs(q);
                 const results = [];
-                snap.forEach(d => { if (d.data().uid !== currentUser.uid) results.push(d.data()); });
+                snap.forEach((d) => {
+                    if (d.id !== currentUser.uid) results.push({ uid: d.id, ...d.data() });
+                });
                 if (results.length === 0) {
                     const qL = query(usersRef, where('displayNameLower', '>=', searchLower), where('displayNameLower', '<=', searchLower + '\uf8ff'));
                     const lSnap = await getDocs(qL);
-                    lSnap.forEach(d => { if (d.data().uid !== currentUser.uid) results.push(d.data()); });
+                    lSnap.forEach((d) => {
+                        if (d.id !== currentUser.uid) results.push({ uid: d.id, ...d.data() });
+                    });
                 }
-                setSearchResults(results.slice(0, 20));
+                const deduped = [];
+                const seen = new Set();
+                results.forEach((user) => {
+                    if (!user?.uid || seen.has(user.uid)) return;
+                    seen.add(user.uid);
+                    deduped.push(user);
+                });
+                setSearchResults(deduped.slice(0, 20));
             } catch (err) {
                 if (import.meta.env.DEV) console.error('Search error:', err);
             } finally {
@@ -587,9 +1211,56 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
         return () => clearTimeout(t);
     }, [dmSearchQuery, currentUser]);
 
+    useEffect(() => {
+        if (!showGroupCreator || !currentUser?.uid) return;
+
+        let cancelled = false;
+        const fetchCandidates = async () => {
+            setGroupCandidatesLoading(true);
+            try {
+                const friendsQuery = query(
+                    collection(db, 'users', currentUser.uid, 'friends'),
+                    where('status', '==', 'accepted')
+                );
+                const friendsSnap = await getDocs(friendsQuery);
+                const friendIds = friendsSnap.docs.map((friendDoc) => friendDoc.id);
+
+                const candidateDocs = await Promise.all(friendIds.map(async (friendUid) => {
+                    try {
+                        const userSnap = await getDoc(doc(db, 'users', friendUid));
+                        if (!userSnap.exists()) return null;
+                        return { uid: friendUid, ...userSnap.data() };
+                    } catch (_) {
+                        return null;
+                    }
+                }));
+
+                if (!cancelled) {
+                    const candidates = candidateDocs
+                        .filter(Boolean)
+                        .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+                    setGroupCandidates(candidates);
+                }
+            } catch (error) {
+                if (import.meta.env.DEV) console.error('Error loading group chat candidates:', error);
+                if (!cancelled) setGroupCandidates([]);
+            } finally {
+                if (!cancelled) setGroupCandidatesLoading(false);
+            }
+        };
+
+        fetchCandidates();
+        return () => { cancelled = true; };
+    }, [showGroupCreator, currentUser?.uid]);
+
     /* ── Actions ───────────────────────────────────────────────────────── */
     const handleCreateChannel = async () => {
-        const channelName = prompt('Enter channel name:');
+        const channelName = await appPrompt('Enter channel name:', {
+            title: 'Create Channel',
+            placeholder: 'new-channel',
+            confirmText: 'Create',
+            cancelText: 'Cancel'
+        });
         if (!channelName) return;
         try {
             await updateDoc(doc(db, 'servers', activeServerId), {
@@ -597,7 +1268,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
             });
         } catch (err) {
             if (import.meta.env.DEV) console.error(err);
-            alert('Failed to create channel');
+            await appAlert('Failed to create channel.', { title: 'Channel Error', danger: true });
         }
     };
 
@@ -605,21 +1276,234 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
         try {
             const sortedIds = [currentUser.uid, targetUser.uid].sort();
             const dmId = `dm_${sortedIds[0]}_${sortedIds[1]}`;
-            await setDoc(doc(db, 'dms', dmId), { participants: sortedIds, updatedAt: new Date(), startedBy: currentUser.uid }, { merge: true });
+            await setDoc(doc(db, 'dms', dmId), {
+                participants: sortedIds,
+                isGroup: false,
+                updatedAt: serverTimestamp(),
+                startedBy: currentUser.uid
+            }, { merge: true });
             setActiveChannelId(dmId);
             setActiveChannelName(targetUser.displayName);
+            if (setActiveChannelType) setActiveChannelType('dm');
             if (setActiveDmUser) setActiveDmUser(targetUser);
             setShowDmSearch(false);
             setDmSearchQuery('');
             setSearchResults([]);
         } catch (err) {
             if (import.meta.env.DEV) console.error('Error starting DM:', err);
-            alert('Error starting DM');
+            await appAlert('Error starting DM.', { title: 'DM Error', danger: true });
+        }
+    };
+
+    const openGroupCreator = () => {
+        setGroupSelectedIds(new Set());
+        setGroupSearchQuery('');
+        setGroupNameInput('');
+        setShowGroupCreator(true);
+    };
+
+    const closeGroupCreator = (force = false) => {
+        if (!force && groupCreating) return;
+        setShowGroupCreator(false);
+        setGroupSelectedIds(new Set());
+        setGroupSearchQuery('');
+        setGroupNameInput('');
+    };
+
+    const toggleGroupMember = (uid) => {
+        setGroupSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(uid)) next.delete(uid);
+            else next.add(uid);
+            return next;
+        });
+    };
+
+    const createGroupChat = async () => {
+        if (!currentUser?.uid || groupCreating) return;
+
+        const selectedMemberIds = [...groupSelectedIds].filter((uid) => uid && uid !== currentUser.uid);
+        if (selectedMemberIds.length < 2) {
+            await appAlert('Please select at least 2 members for a group chat.', { title: 'Group Chat', danger: true });
+            return;
+        }
+
+        setGroupCreating(true);
+        try {
+            const participants = [currentUser.uid, ...selectedMemberIds];
+            const selectedMembers = groupCandidates.filter((candidate) => groupSelectedIds.has(candidate.uid));
+            const fallbackName = selectedMembers
+                .map((member) => member.displayName)
+                .filter(Boolean)
+                .slice(0, 3)
+                .join(', ') || 'Group Chat';
+            const finalName = groupNameInput.trim() || fallbackName;
+
+            const groupDocRef = await addDoc(collection(db, 'dms'), {
+                isGroup: true,
+                name: finalName,
+                participants,
+                ownerId: currentUser.uid,
+                createdBy: currentUser.uid,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            });
+
+            setActiveChannelId(groupDocRef.id);
+            setActiveChannelName(finalName);
+            if (setActiveChannelType) setActiveChannelType('group-dm');
+            if (setActiveDmUser) setActiveDmUser(null);
+
+            closeGroupCreator(true);
+        } catch (error) {
+            if (import.meta.env.DEV) console.error('Error creating group chat:', error);
+            await appAlert('Failed to create group chat.', { title: 'Group Chat Error', danger: true });
+        } finally {
+            setGroupCreating(false);
+        }
+    };
+
+    const switchToFriends = () => {
+        setActiveChannelId('friends');
+        setActiveChannelName('Friends');
+        if (setActiveChannelType) setActiveChannelType('friends');
+        if (setActiveDmUser) setActiveDmUser(null);
+    };
+
+    const openGroupSettings = (dm) => {
+        if (!dm || dm.kind !== 'group') return;
+        setGroupSettingsDmId(dm.id);
+    };
+
+    const closeGroupSettings = (force = false) => {
+        if (!force && (groupSettingsSaving || groupSettingsLeaving || groupSettingsDeleting)) return;
+        setGroupSettingsDmId(null);
+    };
+
+    const deleteGroupMessages = async (channelId) => {
+        if (!channelId) return;
+        const messagesSnap = await getDocs(query(collection(db, 'messages'), where('channel', '==', channelId)));
+        await Promise.all(messagesSnap.docs.map((messageDoc) => deleteDoc(messageDoc.ref)));
+    };
+
+    const saveGroupSettings = async ({ name, photoURL }) => {
+        if (!groupSettingsDm || !canManageCurrentGroup || groupSettingsSaving) return;
+
+        const trimmedName = String(name || '').trim().slice(0, 60);
+        const trimmedPhotoURL = String(photoURL || '').trim();
+
+        if (!trimmedName) {
+            await appAlert('Group name cannot be empty.', { title: 'Invalid Name', danger: true });
+            return;
+        }
+
+        if (trimmedPhotoURL && !/^https?:\/\//i.test(trimmedPhotoURL) && !/^data:image\//i.test(trimmedPhotoURL)) {
+            await appAlert('Use a valid image URL (http/https) or upload an image.', { title: 'Invalid Photo URL', danger: true });
+            return;
+        }
+
+        setGroupSettingsSaving(true);
+        try {
+            await updateDoc(doc(db, 'dms', groupSettingsDm.id), {
+                name: trimmedName,
+                photoURL: trimmedPhotoURL || '',
+                ownerId: groupSettingsOwnerId || currentUser.uid,
+                updatedAt: serverTimestamp(),
+            });
+
+            if (activeChannelId === groupSettingsDm.id) {
+                setActiveChannelName(trimmedName);
+            }
+        } catch (error) {
+            if (import.meta.env.DEV) console.error('Error updating group chat:', error);
+            await appAlert('Failed to update group chat.', { title: 'Update Failed', danger: true });
+        } finally {
+            setGroupSettingsSaving(false);
+        }
+    };
+
+    const leaveGroupChat = async () => {
+        if (!groupSettingsDm || groupSettingsLeaving) return;
+
+        const participants = Array.isArray(groupSettingsDm.participants) ? groupSettingsDm.participants.filter(Boolean) : [];
+        if (!participants.includes(currentUser.uid)) {
+            closeGroupSettings(true);
+            return;
+        }
+
+        const ownerLeavingWithOthers = groupSettingsOwnerId === currentUser.uid && participants.length > 1;
+        const confirmed = await appConfirm(
+            ownerLeavingWithOthers
+                ? 'Leave this group? Ownership will transfer to another member.'
+                : 'Leave this group chat?',
+            { title: 'Leave Group Chat', confirmText: 'Leave', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
+
+        setGroupSettingsLeaving(true);
+        try {
+            const remainingParticipants = participants.filter((uid) => uid !== currentUser.uid);
+
+            if (remainingParticipants.length === 0) {
+                await deleteGroupMessages(groupSettingsDm.id);
+                await deleteDoc(doc(db, 'dms', groupSettingsDm.id));
+            } else {
+                const payload = {
+                    participants: remainingParticipants,
+                    updatedAt: serverTimestamp(),
+                };
+
+                if (groupSettingsOwnerId === currentUser.uid) {
+                    payload.ownerId = remainingParticipants[0];
+                }
+
+                await updateDoc(doc(db, 'dms', groupSettingsDm.id), payload);
+            }
+
+            if (activeChannelId === groupSettingsDm.id) {
+                switchToFriends();
+            }
+            closeGroupSettings(true);
+        } catch (error) {
+            if (import.meta.env.DEV) console.error('Error leaving group chat:', error);
+            await appAlert('Failed to leave group chat.', { title: 'Leave Failed', danger: true });
+        } finally {
+            setGroupSettingsLeaving(false);
+        }
+    };
+
+    const deleteGroupChat = async () => {
+        if (!groupSettingsDm || !canManageCurrentGroup || groupSettingsDeleting) return;
+
+        const confirmed = await appConfirm(
+            'Delete this group chat for everyone? This cannot be undone.',
+            { title: 'Delete Group Chat', confirmText: 'Delete', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
+
+        setGroupSettingsDeleting(true);
+        try {
+            await deleteGroupMessages(groupSettingsDm.id);
+            await deleteDoc(doc(db, 'dms', groupSettingsDm.id));
+
+            if (activeChannelId === groupSettingsDm.id) {
+                switchToFriends();
+            }
+            closeGroupSettings(true);
+        } catch (error) {
+            if (import.meta.env.DEV) console.error('Error deleting group chat:', error);
+            await appAlert('Failed to delete group chat.', { title: 'Delete Failed', danger: true });
+        } finally {
+            setGroupSettingsDeleting(false);
         }
     };
 
     const handleDeleteChannel = async (channel) => {
-        if (!confirm(`Delete #${channel.name}? This can't be undone.`)) return;
+        const confirmed = await appConfirm(
+            `Delete #${channel.name}? This can't be undone.`,
+            { title: 'Delete Channel', confirmText: 'Delete', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             await updateDoc(doc(db, 'servers', activeServerId), { channels: arrayRemove(channel) });
             if (activeChannelId === `${activeServerId}-${channel.name}`) {
@@ -627,7 +1511,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
             }
         } catch (err) {
             if (import.meta.env.DEV) console.error('Error deleting channel:', err);
-            alert('Failed to delete channel');
+            await appAlert('Failed to delete channel.', { title: 'Delete Failed', danger: true });
         }
     };
 
@@ -640,12 +1524,35 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
 
     const canManageChannels = hasPermission(currentUser, serverData, currentUserMember, PERMISSIONS.MANAGE_CHANNELS);
 
+    useEffect(() => {
+        if (activeServerId !== 'home' && showGroupCreator) {
+            closeGroupCreator(true);
+        }
+    }, [activeServerId, showGroupCreator]);
+
+    useEffect(() => {
+        if (activeServerId !== 'home' && groupSettingsDmId) {
+            closeGroupSettings(true);
+        }
+    }, [activeServerId, groupSettingsDmId]);
+
+    useEffect(() => {
+        if (!groupSettingsDmId) return;
+        const stillExists = dms.some((dm) => dm.id === groupSettingsDmId);
+        if (!stillExists) {
+            closeGroupSettings(true);
+        }
+    }, [dms, groupSettingsDmId]);
+
     const shellStyle = {
         width: isMobileView ? '100%' : '240px',
         height: isMobileView ? '100%' : 'var(--app-vh)',
         background: 'linear-gradient(180deg, rgba(11,8,24,0.98) 0%, rgba(13,10,26,0.98) 100%)',
         display: 'flex', flexDirection: 'column',
         borderRight: isMobileView ? 'none' : '1px solid rgba(168,85,247,0.1)',
+        position: 'relative',
+        overflow: 'visible',
+        zIndex: 150,
     };
 
     /* ── Home / DMs view ───────────────────────────────────────────────── */
@@ -663,7 +1570,12 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                         <motion.button
                             className="liquid-tile-button"
                             whileHover={{ x: 3 }} whileTap={{ scale: 0.97 }}
-                            onClick={() => setActiveChannelId('friends')}
+                            onClick={() => {
+                                setActiveChannelId('friends');
+                                setActiveChannelName('Friends');
+                                if (setActiveChannelType) setActiveChannelType('friends');
+                                if (setActiveDmUser) setActiveDmUser(null);
+                            }}
                             style={{
                                 width: '100%', display: 'flex', alignItems: 'center',
                                 padding: '9px 12px',
@@ -678,13 +1590,23 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                             Friends
                         </motion.button>
 
-                        <motion.button
-                            className="glossy-button" whileTap={{ scale: 0.97 }}
-                            style={{ width: '100%', fontSize: '13px', padding: '9px 12px', borderRadius: '10px' }}
-                            onClick={() => setShowDmSearch(!showDmSearch)}
-                        >
-                            {showDmSearch ? 'Close' : 'Start Conversation'}
-                        </motion.button>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <motion.button
+                                className="glossy-button" whileTap={{ scale: 0.97 }}
+                                style={{ width: '100%', fontSize: '13px', padding: '9px 12px', borderRadius: '10px' }}
+                                onClick={() => setShowDmSearch(!showDmSearch)}
+                            >
+                                {showDmSearch ? 'Close' : 'Start DM'}
+                            </motion.button>
+                            <motion.button
+                                className="secondary-button"
+                                whileTap={{ scale: 0.97 }}
+                                style={{ width: '100%', fontSize: '13px', padding: '9px 12px', borderRadius: '10px' }}
+                                onClick={openGroupCreator}
+                            >
+                                Group Chat
+                            </motion.button>
+                        </div>
                     </div>
 
                     <AnimatePresence>
@@ -709,8 +1631,8 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                                                 onClick={() => startDMWithUser(user)}
                                                 className="liquid-list-item"
                                                 style={{ display: 'flex', alignItems: 'center', padding: '8px', borderRadius: '8px', cursor: 'pointer', marginBottom: '2px' }}>
-                                                <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'var(--bg-tertiary)', backgroundImage: user.photoURL ? `url(${user.photoURL})` : 'none', backgroundSize: 'cover', marginRight: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, border: '1px solid rgba(168,85,247,0.2)' }}>
-                                                    {!user.photoURL && user.displayName?.[0]?.toUpperCase()}
+                                                <div style={{ marginRight: '10px' }}>
+                                                    <AvatarBubble photoURL={user.photoURL} displayName={user.displayName} size={28} fallbackBorder="1px solid rgba(168,85,247,0.2)" />
                                                 </div>
                                                 <div>
                                                     <div style={{ fontSize: '13px', fontWeight: 600 }}>{user.displayName}</div>
@@ -734,11 +1656,13 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
 
                     <AnimatePresence>
                         {dms.map((dm, index) => (
-                            <DMItem key={dm.id} index={index} user={dm.otherUser} active={activeChannelId === dm.id}
+                            <DMItem key={dm.id} index={index} dm={dm} active={activeChannelId === dm.id}
+                                onOpenGroupSettings={openGroupSettings}
                                 onClick={() => {
                                     setActiveChannelId(dm.id);
-                                    setActiveChannelName(dm.otherUser.displayName);
-                                    if (setActiveDmUser) setActiveDmUser(dm.otherUser);
+                                    setActiveChannelName(dm.displayName);
+                                    if (setActiveChannelType) setActiveChannelType(dm.kind === 'group' ? 'group-dm' : 'dm');
+                                    if (setActiveDmUser) setActiveDmUser(dm.kind === 'group' ? null : (dm.otherUser || null));
                                 }}
                             />
                         ))}
@@ -747,6 +1671,38 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
 
                 <UserArea currentUser={currentUser} userRoleColor={userRoleColor} onSettings={() => setIsSettingsOpen(true)} />
                 <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+                {showGroupCreator && createPortal(
+                    <GroupChatCreatorModal
+                        isOpen={showGroupCreator}
+                        onClose={closeGroupCreator}
+                        candidates={groupCandidates}
+                        selectedIds={groupSelectedIds}
+                        onToggleMember={toggleGroupMember}
+                        groupName={groupNameInput}
+                        setGroupName={setGroupNameInput}
+                        searchQuery={groupSearchQuery}
+                        setSearchQuery={setGroupSearchQuery}
+                        onCreate={createGroupChat}
+                        loading={groupCandidatesLoading}
+                        creating={groupCreating}
+                    />,
+                    document.body
+                )}
+                {groupSettingsDm && createPortal(
+                    <GroupChatSettingsModal
+                        isOpen={!!groupSettingsDm}
+                        onClose={closeGroupSettings}
+                        dm={groupSettingsDm}
+                        isOwner={canManageCurrentGroup}
+                        onSave={saveGroupSettings}
+                        onLeave={leaveGroupChat}
+                        onDelete={deleteGroupChat}
+                        saving={groupSettingsSaving}
+                        leaving={groupSettingsLeaving}
+                        deleting={groupSettingsDeleting}
+                    />,
+                    document.body
+                )}
             </div>
         );
     }
@@ -769,7 +1725,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
     return (
         <div className="liquid-panel channel-list-shell" style={shellStyle}>
             {/* Server header with dropdown */}
-            <div ref={serverMenuRef} style={{ position: 'relative' }}>
+            <div ref={serverMenuRef} style={{ position: 'relative', zIndex: 400 }}>
                 <motion.div
                     initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
                     onClick={() => setShowServerMenu(!showServerMenu)}
@@ -801,9 +1757,11 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                             animate={{ opacity: 1, y: 0, scaleY: 1 }}
                             exit={{ opacity: 0, y: -6, scaleY: 0.9 }}
                             transition={{ duration: 0.15 }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                             style={{
                                 position: 'absolute', top: '100%', left: '8px', right: '8px',
-                                zIndex: 200,
+                                zIndex: 1400,
                                 background: 'linear-gradient(160deg, rgba(19,13,34,0.99), rgba(9,6,20,0.99))',
                                 border: '1px solid rgba(168,85,247,0.22)',
                                 borderRadius: '12px', padding: '6px',
@@ -812,7 +1770,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                         >
                             <motion.div
                                 whileHover={{ backgroundColor: 'rgba(168,85,247,0.12)' }}
-                                onClick={() => { setShowServerMenu(false); setShowInvite(true); }}
+                                onClick={(e) => { e.stopPropagation(); setShowServerMenu(false); setShowInvite(true); }}
                                 style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', cursor: 'pointer', color: '#c084fc', transition: 'background-color 0.1s' }}
                             >
                                 <Link size={16} />
@@ -821,6 +1779,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                             <div style={{ height: '1px', background: 'rgba(168,85,247,0.1)', margin: '4px 0' }} />
                             <motion.div
                                 whileHover={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
+                                onClick={(e) => { e.stopPropagation(); setShowServerMenu(false); setIsServerSettingsOpen(true); }}
                                 style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', cursor: 'pointer', color: 'var(--text-secondary)', transition: 'background-color 0.1s' }}
                             >
                                 <Settings size={16} />
@@ -884,6 +1843,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
                                                 onClick={() => {
                                                     setActiveChannelId(uid);
                                                     setActiveChannelName(channel.name);
+                                                    if (setActiveChannelType) setActiveChannelType(channel.type || 'text');
                                                     setUnreadChannels(prev => ({ ...prev, [uid]: false }));
                                                 }}
                                                 onDelete={() => handleDeleteChannel(channel)}
@@ -900,6 +1860,7 @@ export default function ChannelList({ activeServerId, activeChannelId, setActive
 
             <UserArea currentUser={currentUser} userRoleColor={userRoleColor} onSettings={() => setIsSettingsOpen(true)} />
             <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+            <ServerSettingsModal isOpen={isServerSettingsOpen} onClose={() => setIsServerSettingsOpen(false)} serverId={activeServerId} />
         </div>
     );
 }
