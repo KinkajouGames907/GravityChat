@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { isSuperAdmin } from '../utils/permissions';
 import { pushZipToGitHub, verifyGitHubConfig } from '../utils/githubUpdate';
+import { appAlert, appConfirm } from '../utils/dialogService';
 
 const TABS = [
     { id: 'deploy', label: 'Deploy', icon: UploadCloud },
@@ -141,8 +142,9 @@ export default function UpdateCenterModal({ isOpen, onClose, isMobile }) {
     const handleDeploy = async () => {
         if (!zipFile || !commitMessage.trim() || isDeploying || !configStatus?.valid) return;
 
-        const confirmed = window.confirm(
-            `You are about to push all files from "${zipFileName}" to the "${GITHUB_BRANCH}" branch of ${configStatus.repoName}.\n\nThis will trigger an automatic Vercel redeploy for ALL users.\n\nAre you sure?`
+        const confirmed = await appConfirm(
+            `You are about to push all files from "${zipFileName}" to the "${GITHUB_BRANCH}" branch of ${configStatus.repoName}.\n\nThis will trigger an automatic Vercel redeploy for ALL users.\n\nAre you sure?`,
+            { title: 'Deploy Update', confirmText: 'Deploy', cancelText: 'Cancel', danger: true }
         );
         if (!confirmed) return;
 
@@ -181,11 +183,11 @@ export default function UpdateCenterModal({ isOpen, onClose, isMobile }) {
         const email = newEmail.trim().toLowerCase();
         if (!email) return;
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            alert('Please enter a valid email address.');
+            await appAlert('Please enter a valid email address.', { title: 'Invalid Email' });
             return;
         }
         if (authorizedEmails.includes(email)) {
-            alert('This user already has access.');
+            await appAlert('This user already has access.', { title: 'Duplicate User' });
             return;
         }
         setAccessLoading(true);
@@ -197,14 +199,18 @@ export default function UpdateCenterModal({ isOpen, onClose, isMobile }) {
             }, { merge: true });
             setNewEmail('');
         } catch (err) {
-            alert(`Failed to grant access: ${err.message}`);
+            await appAlert(`Failed to grant access: ${err.message}`, { title: 'Access Update Failed', danger: true });
         } finally {
             setAccessLoading(false);
         }
     };
 
     const handleRevokeAccess = async (email) => {
-        if (!window.confirm(`Remove Update Center access for ${email}?`)) return;
+        const confirmed = await appConfirm(
+            `Remove Update Center access for ${email}?`,
+            { title: 'Remove Access', confirmText: 'Remove', cancelText: 'Cancel', danger: true }
+        );
+        if (!confirmed) return;
         try {
             await updateDoc(configRef, {
                 authorizedEmails: arrayRemove(email),
@@ -212,7 +218,7 @@ export default function UpdateCenterModal({ isOpen, onClose, isMobile }) {
                 updatedBy: currentUser.email,
             });
         } catch (err) {
-            alert(`Failed to revoke access: ${err.message}`);
+            await appAlert(`Failed to revoke access: ${err.message}`, { title: 'Access Update Failed', danger: true });
         }
     };
 

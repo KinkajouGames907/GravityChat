@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { appAlert } from "../utils/dialogService";
 
 const AuthContext = createContext();
 
@@ -27,7 +28,7 @@ export const AuthProvider = ({ children }) => {
 
                         // Check Global Ban
                         if (mergedUser.globalBan) {
-                            alert("You have been permanently banned from Gravity.");
+                            void appAlert("You have been permanently banned from Gravity.", { title: "Account Banned", danger: true });
                             signOut(auth);
                             setCurrentUser(null);
                             setLoading(false);

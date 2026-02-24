@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Hash, Volume2 } from 'lucide-react';
+import { Search, Hash, Volume2, Users } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import userAvatar from '../assets/user_avatar.png';
+import { resolveAvatarUrl } from '../utils/avatarUrl';
 
 export default function QuickSwitcher({ isOpen, onClose, onNavigate }) {
     const { currentUser } = useAuth();
@@ -53,7 +54,39 @@ export default function QuickSwitcher({ isOpen, onClose, onNavigate }) {
                 );
                 await Promise.all(dmSnap.docs.map(async (dmDoc) => {
                     const data = dmDoc.data();
-                    const otherId = data.participants.find(uid => uid !== currentUser.uid);
+                    const participants = Array.isArray(data.participants) ? data.participants : [];
+
+                    if (data.isGroup) {
+                        const otherIds = participants.filter((uid) => uid !== currentUser.uid);
+                        const names = await Promise.all(otherIds.map(async (uid) => {
+                            try {
+                                const userDoc = await getDoc(doc(db, 'users', uid));
+                                if (!userDoc.exists()) return null;
+                                return userDoc.data().displayName || null;
+                            } catch (_) {
+                                return null;
+                            }
+                        }));
+                        const fallbackName = names.filter(Boolean).slice(0, 3).join(', ') || 'Group Chat';
+                        const label = data.name?.trim() || fallbackName;
+
+                        allItems.push({
+                            type: 'group-dm',
+                            label,
+                            sublabel: `${participants.length || 0} members`,
+                            serverId: 'home',
+                            channelId: dmDoc.id,
+                            channelName: label,
+                            channelType: 'group-dm',
+                            photoURL: data.photoURL || '',
+                            dmUser: null,
+                        });
+                        return;
+                    }
+
+                    const otherId = participants.find((uid) => uid !== currentUser.uid);
+                    if (!otherId) return;
+
                     try {
                         const userDoc = await getDoc(doc(db, 'users', otherId));
                         if (userDoc.exists()) {
@@ -65,11 +98,12 @@ export default function QuickSwitcher({ isOpen, onClose, onNavigate }) {
                                 serverId: 'home',
                                 channelId: dmDoc.id,
                                 channelName: ud.displayName || 'Unknown',
+                                channelType: 'dm',
                                 photoURL: ud.photoURL,
-                                dmUser: ud,
+                                dmUser: { uid: otherId, ...ud },
                             });
                         }
-                    } catch (_) {}
+                    } catch (_) { }
                 }));
             } catch (_) {}
 
@@ -213,13 +247,29 @@ export default function QuickSwitcher({ isOpen, onClose, onNavigate }) {
                                     }}
                                 >
                                     {/* Icon */}
-                                    {item.type === 'dm' ? (
-                                        <div style={{
-                                            width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0,
-                                            backgroundImage: `url(${item.photoURL || userAvatar})`,
-                                            backgroundSize: 'cover', backgroundPosition: 'center',
-                                            border: '1px solid rgba(168,85,247,0.2)',
-                                        }} />
+                                    {(item.type === 'dm' || item.type === 'group-dm') ? (
+                                        item.type === 'group-dm' && !resolveAvatarUrl(item.photoURL) ? (
+                                            <div style={{
+                                                width: '34px',
+                                                height: '34px',
+                                                borderRadius: '50%',
+                                                flexShrink: 0,
+                                                border: '1px solid rgba(168,85,247,0.2)',
+                                                background: 'rgba(168,85,247,0.12)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}>
+                                                <Users size={16} color="#a855f7" />
+                                            </div>
+                                        ) : (
+                                            <div style={{
+                                                width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0,
+                                                backgroundImage: `url(${resolveAvatarUrl(item.photoURL) || userAvatar})`,
+                                                backgroundSize: 'cover', backgroundPosition: 'center',
+                                                border: '1px solid rgba(168,85,247,0.2)',
+                                            }} />
+                                        )
                                     ) : (
                                         <div style={{
                                             width: '34px', height: '34px', borderRadius: '10px', flexShrink: 0,

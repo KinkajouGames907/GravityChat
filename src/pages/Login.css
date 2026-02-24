@@ -369,6 +369,38 @@
   text-align: center;
 }
 
+.login-legal-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.login-legal-consent input {
+  margin-top: 2px;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.login-footnote-link {
+  background: none;
+  border: none;
+  color: #c084fc;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.login-footnote-link:hover {
+  color: #e9d5ff;
+}
+
 /* === RESPONSIVE === */
 @media (max-width: 960px) {
   .login-layout {

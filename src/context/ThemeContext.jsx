@@ -11,12 +11,12 @@ export function useTheme() {
 
 const DEFAULT_THEME = {
     colors: {
-        '--bg-primary': '#06040f',
-        '--bg-secondary': '#0b0818',
-        '--bg-tertiary': '#130d22',
-        '--accent': '#a855f7',
-        '--text-primary': '#ede8ff',
-        '--text-secondary': '#b0a0cc'
+        '--bg-primary': '#0b0d10',
+        '--bg-secondary': '#111419',
+        '--bg-tertiary': '#191d23',
+        '--accent': '#8f98a3',
+        '--text-primary': '#eef1f4',
+        '--text-secondary': '#b2bac4'
     },
     animations: {
         enabled: true,
@@ -32,6 +32,15 @@ const DEFAULT_THEME = {
         notification: null,
         ringtone: null
     }
+};
+
+const LEGACY_COLOR_MIGRATION = {
+    '--bg-primary': '#06040f',
+    '--bg-secondary': '#0b0818',
+    '--bg-tertiary': '#130d22',
+    '--accent': '#a855f7',
+    '--text-primary': '#ede8ff',
+    '--text-secondary': '#b0a0cc',
 };
 
 export function ThemeProvider({ children }) {
@@ -50,11 +59,20 @@ export function ThemeProvider({ children }) {
         const unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid, 'settings', 'theme'), (doc) => {
             if (doc.exists()) {
                 const data = doc.data();
+                const mergedColors = { ...DEFAULT_THEME.colors, ...data.colors };
+
+                // Migrate old purple defaults to the new neutral palette.
+                Object.entries(LEGACY_COLOR_MIGRATION).forEach(([key, legacyValue]) => {
+                    if (mergedColors[key] === legacyValue) {
+                        mergedColors[key] = DEFAULT_THEME.colors[key];
+                    }
+                });
+
                 // Merge with default to ensure all keys exist
                 setTheme(prev => ({
                     ...DEFAULT_THEME,
                     ...data,
-                    colors: { ...DEFAULT_THEME.colors, ...data.colors },
+                    colors: mergedColors,
                     animations: { ...DEFAULT_THEME.animations, ...data.animations },
                     particles: { ...DEFAULT_THEME.particles, ...data.particles },
                     sounds: { ...DEFAULT_THEME.sounds, ...data.sounds }
