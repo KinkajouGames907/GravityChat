@@ -16,7 +16,9 @@ import {
     Shield,
     Smile,
     Palette,
-    Monitor
+    Monitor,
+    Zap,
+    CreditCard
 } from 'lucide-react';
 import { updateProfile, deleteUser, signOut } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
@@ -29,18 +31,21 @@ import { storage } from '../lib/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { useEmoji } from '../context/EmojiContext';
 import { customEmojis as hardcodedEmojis } from '../utils/customEmojis'; // Keep for fallback or migration
+import { useSubscription, TIERS } from '../context/SubscriptionContext';
 import { appConfirm } from '../utils/dialogService';
 import LegalDocumentsModal from './LegalDocumentsModal';
 
 export default function SettingsModal({ isOpen, onClose, initialTab }) {
     const { currentUser, updateUserStatus } = useAuth();
     const { isMuted, toggleMute } = useSound();
+    const { tier, tierKey, openSubscriptionModal, openBillingPortal } = useSubscription();
 
     const tabs = [
         { id: 'account', label: 'My Account', icon: User },
         { id: 'profiles', label: 'Profiles', icon: Palette },
         { id: 'appearance', label: 'Appearance', icon: Monitor },
         { id: 'emojis', label: 'Custom Emojis', icon: Smile },
+        { id: 'subscription', label: 'Gravity+', icon: Zap },
         { id: 'privacy', label: 'Privacy & Safety', icon: Shield },
         { id: 'danger', label: 'Delete Account', icon: Trash2, danger: true }
     ];
@@ -1267,6 +1272,108 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                                                 )}
                                             </div>
 
+                                        </motion.div>
+                                    )}
+
+                                    {activeTab === 'subscription' && (
+                                        <motion.div
+                                            key="subscription"
+                                            initial={{ opacity: 0, x: 20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: -20 }}
+                                            transition={{ duration: 0.15 }}
+                                        >
+                                            <h2 style={{ marginBottom: '8px', fontSize: '20px', fontWeight: 700 }}>Gravity+</h2>
+                                            <p style={{ marginBottom: '28px', fontSize: '14px', color: 'var(--text-muted)' }}>
+                                                Manage your subscription and unlock premium features.
+                                            </p>
+
+                                            {/* Current plan card */}
+                                            <div style={{
+                                                padding: '20px',
+                                                borderRadius: '14px',
+                                                border: `2px solid ${tier.color}`,
+                                                backgroundColor: `${tier.color}12`,
+                                                marginBottom: '20px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: '16px',
+                                                flexWrap: 'wrap',
+                                            }}>
+                                                <div>
+                                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                                                        Current Plan
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <Zap size={18} color={tier.color} />
+                                                        <span style={{ fontSize: '22px', fontWeight: 800, color: tier.color }}>
+                                                            {tier.label}
+                                                        </span>
+                                                        {tierKey !== 'free' && (
+                                                            <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                                                                ${tier.price}/month
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ marginTop: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                                        {tierKey === 'free' && 'Up to 5 servers'}
+                                                        {tierKey === 'basic' && 'Up to 10 servers · Basic badge'}
+                                                        {tierKey === 'pro' && 'Up to 25 servers · Pro badge · Early access'}
+                                                        {tierKey === 'max' && 'Unlimited servers · Max badge · All features'}
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                    <button
+                                                        onClick={() => { onClose(); setTimeout(openSubscriptionModal, 150); }}
+                                                        className="glossy-button"
+                                                        style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '14px', whiteSpace: 'nowrap' }}
+                                                    >
+                                                        <Zap size={15} />
+                                                        {tierKey === 'free' ? 'Upgrade Plan' : 'Change Plan'}
+                                                    </button>
+                                                    {tierKey !== 'free' && (
+                                                        <button
+                                                            onClick={openBillingPortal}
+                                                            style={{
+                                                                display: 'flex', alignItems: 'center', gap: '6px',
+                                                                padding: '9px 16px', borderRadius: '10px',
+                                                                border: '1px solid var(--glass-border)',
+                                                                backgroundColor: 'transparent',
+                                                                color: 'var(--text-secondary)',
+                                                                fontWeight: 600, fontSize: '13px',
+                                                                cursor: 'pointer', whiteSpace: 'nowrap',
+                                                            }}
+                                                        >
+                                                            <CreditCard size={14} />
+                                                            Manage Billing
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Tier comparison */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                {Object.values(TIERS).filter(t => t.id !== 'free').map(t => (
+                                                    <div key={t.id} style={{
+                                                        padding: '14px 16px',
+                                                        borderRadius: '12px',
+                                                        border: `1px solid ${t.id === tierKey ? t.color : 'var(--glass-border)'}`,
+                                                        backgroundColor: t.id === tierKey ? `${t.color}10` : 'var(--bg-tertiary)',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                    }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <span style={{ fontWeight: 700, color: t.color }}>{t.label}</span>
+                                                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                                                {t.maxServers === Infinity ? 'Unlimited servers' : `Up to ${t.maxServers} servers`}
+                                                            </span>
+                                                        </div>
+                                                        <span style={{ fontWeight: 700 }}>${t.price}/mo</span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </motion.div>
                                     )}
 

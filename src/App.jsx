@@ -18,7 +18,8 @@ import { PeerProvider, usePeer } from './context/PeerContext';
 import { SoundProvider, useSound } from './context/SoundContext';
 import { EmojiProvider } from './context/EmojiContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { VoiceControlsProvider } from './context/VoiceControlsContext';
+import { SubscriptionProvider } from './context/SubscriptionContext';
+import SubscriptionModal from './components/SubscriptionModal';
 import './App.css';
 
 function PrivateRoute({ children }) {
@@ -261,6 +262,31 @@ function App() {
 
     return (
         <ErrorBoundary>
+            <AuthProvider>
+                <ThemeProvider>
+                    <SoundProvider>
+                        <EmojiProvider>
+                            <SubscriptionProvider>
+                            <PeerProvider>
+                                <AppLoader show={!appReady} />
+                                <Router>
+                                    <ParticleEffects />
+                                    <Routes>
+                                        <Route path="/login" element={<Login />} />
+                                        <Route path="/" element={
+                                            <PrivateRoute>
+                                                <Home />
+                                            </PrivateRoute>
+                                        } />
+                                    </Routes>
+                                </Router>
+                            </PeerProvider>
+                            <SubscriptionModal />
+                            </SubscriptionProvider>
+                        </EmojiProvider>
+                    </SoundProvider>
+                </ThemeProvider>
+            </AuthProvider>
             <InAppDialogProvider>
                 <VoiceControlsProvider>
                     <AuthProvider>

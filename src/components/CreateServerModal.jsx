@@ -5,6 +5,7 @@ import { X, Upload, Server, Sparkles, Loader } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, setDoc, doc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { useSubscription } from '../context/SubscriptionContext';
 import { INVITE_CODE_LENGTH } from '../utils/constants';
 import { appAlert } from '../utils/dialogService';
 
@@ -43,10 +44,19 @@ export default function CreateServerModal({ isOpen, onClose }) {
     const [serverDescription, setServerDescription] = useState('');
     const [loading, setLoading] = useState(false);
     const { currentUser } = useAuth();
+    const { canJoinServer, tier, openSubscriptionModal } = useSubscription();
 
     const handleCreate = async (e) => {
         e.preventDefault();
         if (!serverName.trim()) return;
+
+        // Check tier server limit before creating
+        const serverCount = (currentUser.joinedServers || []).length;
+        if (!canJoinServer(serverCount)) {
+            onClose();
+            openSubscriptionModal();
+            return;
+        }
 
         setLoading(true);
         let serverRef = null;

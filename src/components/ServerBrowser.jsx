@@ -5,6 +5,7 @@ import { X, Search, Hash, Users, LogIn } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, arrayUnion, serverTimestamp, setDoc, limit, orderBy, startAfter } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { useSubscription } from '../context/SubscriptionContext';
 import { SERVERS_PER_PAGE } from '../utils/constants';
 import { appAlert } from '../utils/dialogService';
 
@@ -16,6 +17,7 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
     const [lastDoc, setLastDoc] = useState(null);
     const [hasMore, setHasMore] = useState(true);
     const { currentUser } = useAuth();
+    const { canJoinServer, openSubscriptionModal } = useSubscription();
 
     useEffect(() => {
         if (isOpen) {
@@ -76,6 +78,14 @@ export default function ServerBrowser({ isOpen, onClose, onJoinServer, isMobile 
 
     const handleJoin = async (server) => {
         if (!currentUser) return;
+
+        const serverCount = (currentUser.joinedServers || []).length;
+        if (!canJoinServer(serverCount)) {
+            onClose();
+            openSubscriptionModal();
+            return;
+        }
+
         setLoading(true);
         try {
             // 1. Add to server members subcollection

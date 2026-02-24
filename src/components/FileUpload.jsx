@@ -2,11 +2,7 @@ import { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Image, FileText, Film, X, Upload, Loader, AlertCircle } from 'lucide-react';
-
-// File size limits
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_GIF_SIZE = 15 * 1024 * 1024; // 15MB
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB (base64 in Firestore has practical limits)
+import { useSubscription } from '../context/SubscriptionContext';
 
 // Allowed file types
 const ALLOWED_TYPES = {
@@ -22,6 +18,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState(null);
     const fileInputRef = useRef(null);
+    const { canUploadFile, tier, openSubscriptionModal } = useSubscription();
 
     const handleDrag = (e) => {
         e.preventDefault();
@@ -36,7 +33,6 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
     const validateFile = (file) => {
         setError(null);
 
-        // Check if file type is allowed
         const isImage = ALLOWED_TYPES.image.includes(file.type);
         const isGif = ALLOWED_TYPES.gif.includes(file.type);
         const isText = ALLOWED_TYPES.text.includes(file.type);
@@ -46,15 +42,14 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
             return false;
         }
 
-        // Check file size
-        if (isGif && file.size > MAX_GIF_SIZE) {
-            setError('GIF is too large. Maximum size is 15MB.');
-            return false;
-        } else if (isImage && file.size > MAX_IMAGE_SIZE) {
-            setError('Image is too large. Maximum size is 10MB.');
-            return false;
-        } else if (isText && file.size > MAX_FILE_SIZE) {
-            setError('File is too large. Maximum size is 500MB.');
+        // Check against the user's tier limit
+        if (!canUploadFile(file.size, file.type)) {
+            const limitMB = isGif
+                ? Math.round(tier.maxGifSize / 1024 / 1024)
+                : isImage
+                    ? Math.round(tier.maxImageSize / 1024 / 1024)
+                    : Math.round(tier.maxFileSize / 1024 / 1024);
+            setError(`File too large for your ${tier.label} plan (max ${limitMB} MB). Upgrade for higher limits.`);
             return false;
         }
 
@@ -352,7 +347,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
                                     fontSize: '12px',
                                     color: 'var(--text-muted)'
                                 }}>
-                                    <Image size={16} /> Images (10MB)
+                                    <Image size={16} /> Images ({Math.round(tier.maxImageSize / 1024 / 1024)}MB)
                                 </div>
                                 <div style={{
                                     display: 'flex',
@@ -361,7 +356,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
                                     fontSize: '12px',
                                     color: 'var(--text-muted)'
                                 }}>
-                                    <Film size={16} /> GIFs (15MB)
+                                    <Film size={16} /> GIFs ({Math.round(tier.maxGifSize / 1024 / 1024)}MB)
                                 </div>
                                 <div style={{
                                     display: 'flex',
@@ -370,7 +365,7 @@ export default function FileUpload({ isOpen, onClose, onFileSelect }) {
                                     fontSize: '12px',
                                     color: 'var(--text-muted)'
                                 }}>
-                                    <FileText size={16} /> Text/HTML (500MB)
+                                    <FileText size={16} /> Text ({Math.round(tier.maxFileSize / 1024 / 1024)}MB)
                                 </div>
                             </div>
                         </div>
