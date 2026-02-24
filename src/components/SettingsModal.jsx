@@ -478,6 +478,111 @@ export default function SettingsModal({ isOpen, onClose, initialTab }) {
                                                 </div>
                                             </div>
 
+                                            {/* Display Name */}
+                                            <div style={{ marginBottom: '24px' }}>
+                                                <label style={{
+                                                    display: 'block',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: 'var(--text-secondary)',
+                                                    marginBottom: '10px',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.5px'
+                                                }}>
+                                                    Display Name
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={displayName}
+                                                    onChange={(e) => setDisplayName(e.target.value)}
+                                                    placeholder="Your display name"
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '14px 16px',
+                                                        backgroundColor: 'var(--bg-primary)',
+                                                        border: '2px solid var(--glass-border)',
+                                                        borderRadius: '12px',
+                                                        color: 'white',
+                                                        fontSize: '15px',
+                                                        outline: 'none',
+                                                        transition: 'all 0.2s',
+                                                        boxSizing: 'border-box'
+                                                    }}
+                                                    onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
+                                                    onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                                />
+                                            </div>
+
+                                            {/* Username */}
+                                            <div style={{ marginBottom: '24px' }}>
+                                                <label style={{
+                                                    display: 'block',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: 'var(--text-secondary)',
+                                                    marginBottom: '10px',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.5px'
+                                                }}>
+                                                    Username
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={username}
+                                                    onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s/g, ''))}
+                                                    placeholder="your_username"
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '14px 16px',
+                                                        backgroundColor: 'var(--bg-primary)',
+                                                        border: '2px solid var(--glass-border)',
+                                                        borderRadius: '12px',
+                                                        color: 'white',
+                                                        fontSize: '15px',
+                                                        outline: 'none',
+                                                        transition: 'all 0.2s',
+                                                        boxSizing: 'border-box'
+                                                    }}
+                                                    onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
+                                                    onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                                />
+                                            </div>
+
+                                            {/* Avatar URL */}
+                                            <div style={{ marginBottom: '24px' }}>
+                                                <label style={{
+                                                    display: 'block',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: 'var(--text-secondary)',
+                                                    marginBottom: '10px',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.5px'
+                                                }}>
+                                                    Avatar URL
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={photoURL}
+                                                    onChange={(e) => setPhotoURL(e.target.value)}
+                                                    placeholder="https://example.com/avatar.png"
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '14px 16px',
+                                                        backgroundColor: 'var(--bg-primary)',
+                                                        border: '2px solid var(--glass-border)',
+                                                        borderRadius: '12px',
+                                                        color: 'white',
+                                                        fontSize: '15px',
+                                                        outline: 'none',
+                                                        transition: 'all 0.2s',
+                                                        boxSizing: 'border-box'
+                                                    }}
+                                                    onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
+                                                    onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                                />
+                                            </div>
+
                                             {/* User Status */}
                                             <div style={{ marginBottom: '24px' }}>
                                                 <label style={{
