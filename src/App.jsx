@@ -17,6 +17,8 @@ import { PeerProvider, usePeer } from './context/PeerContext';
 import { SoundProvider, useSound } from './context/SoundContext';
 import { EmojiProvider } from './context/EmojiContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { SubscriptionProvider } from './context/SubscriptionContext';
+import SubscriptionModal from './components/SubscriptionModal';
 import './App.css';
 
 function PrivateRoute({ children }) {
@@ -250,6 +252,7 @@ function App() {
                 <ThemeProvider>
                     <SoundProvider>
                         <EmojiProvider>
+                            <SubscriptionProvider>
                             <PeerProvider>
                                 <AppLoader show={!appReady} />
                                 <Router>
@@ -264,6 +267,8 @@ function App() {
                                     </Routes>
                                 </Router>
                             </PeerProvider>
+                            <SubscriptionModal />
+                            </SubscriptionProvider>
                         </EmojiProvider>
                     </SoundProvider>
                 </ThemeProvider>
